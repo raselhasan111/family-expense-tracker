@@ -17,12 +17,12 @@ export async function POST(request: Request) {
 
         // 2. Parse request body
         const body = await request.json();
-        const { user, reason, amount, date } = body;
+        const { userName, userEmail, reason, amount, date } = body;
 
         // Validate inputs
-        if (!user || !reason || !amount || !date) {
+        if (!userName || !userEmail || !reason || !amount || !date) {
             return NextResponse.json(
-                { error: 'Missing required fields: user, reason, amount, and date are required.' },
+                { error: 'Missing required fields: userName, userEmail, reason, amount, and date are required.' },
                 { status: 400 }
             );
         }
@@ -35,7 +35,6 @@ export async function POST(request: Request) {
         }
 
         // 3. Authenticate with Google Sheets API
-        // Format the private key correctly (replace literal '\n' with actual newlines)
         const privateKey = process.env.GOOGLE_PRIVATE_KEY?.replace(/\\n/g, '\n');
 
         const auth = new google.auth.GoogleAuth({
@@ -54,14 +53,13 @@ export async function POST(request: Request) {
         const spreadsheetId = process.env.GOOGLE_SHEET_ID;
 
         // 4. Append data to the sheet
-        // We assume the sheet has headers: Date, User, Reason, Amount in the first row.
-        // If you haven't set up the sheet, create one and put those headers in A1:D1.
+        // Headers: Date | Name | Email | Reason | Amount
         const response = await sheets.spreadsheets.values.append({
             spreadsheetId,
-            range: 'Sheet1!A:D', // Adjust 'Sheet1' if your tab name is different
+            range: 'Sheet1!A:E',
             valueInputOption: 'USER_ENTERED',
             requestBody: {
-                values: [[date, user, reason, amount]],
+                values: [[date, userName, userEmail, reason, amount]],
             },
         });
 
@@ -75,7 +73,6 @@ export async function POST(request: Request) {
     } catch (error: any) {
         console.error('Error saving expense:', error);
 
-        // Check if it's an authorization or environment error
         const isConfigError = error.message.includes('Missing required environment variables') ||
             error.message.includes('key values mismatch');
 

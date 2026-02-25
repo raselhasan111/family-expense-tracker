@@ -1,9 +1,10 @@
 'use client';
 
 import { useState } from 'react';
+import { useSession, signOut } from 'next-auth/react';
 
 export default function ExpenseForm() {
-    const [user, setUser] = useState('');
+    const { data: session } = useSession();
     const [reason, setReason] = useState('');
     const [amount, setAmount] = useState('');
     const [loading, setLoading] = useState(false);
@@ -17,11 +18,11 @@ export default function ExpenseForm() {
         setErrorMSG('');
 
         try {
-            // Get current date formatted (e.g., YYYY-MM-DD or MM/DD/YYYY)
             const date = new Date().toLocaleDateString('en-US');
 
             const payload = {
-                user,
+                userName: session?.user?.name || 'Unknown',
+                userEmail: session?.user?.email || 'Unknown',
                 reason,
                 amount: Number(amount),
                 date
@@ -42,7 +43,6 @@ export default function ExpenseForm() {
             }
 
             setSuccess(true);
-            setUser('');
             setReason('');
             setAmount('');
 
@@ -57,33 +57,39 @@ export default function ExpenseForm() {
     return (
         <div className="w-full max-w-md mx-auto relative z-10">
             <div className="bg-white/10 backdrop-blur-xl border border-white/20 shadow-2xl rounded-3xl p-8 transition-all hover:shadow-primary/20 hover:border-white/30">
+
+                {/* Signed-in user info bar */}
+                <div className="flex items-center justify-between mb-6 pb-4 border-b border-white/10">
+                    <div className="flex items-center gap-3">
+                        {session?.user?.image ? (
+                            <img
+                                src={session.user.image}
+                                alt={session.user.name || 'User'}
+                                className="w-9 h-9 rounded-full ring-2 ring-emerald-400/40"
+                            />
+                        ) : (
+                            <div className="w-9 h-9 rounded-full bg-emerald-500/20 flex items-center justify-center text-emerald-400 text-sm font-bold">
+                                {session?.user?.name?.[0] || '?'}
+                            </div>
+                        )}
+                        <div>
+                            <p className="text-sm font-semibold text-white leading-tight">{session?.user?.name}</p>
+                            <p className="text-xs text-slate-400">{session?.user?.email}</p>
+                        </div>
+                    </div>
+                    <button
+                        onClick={() => signOut()}
+                        className="text-xs text-slate-400 hover:text-rose-400 transition-colors cursor-pointer bg-white/5 hover:bg-rose-500/10 border border-white/10 hover:border-rose-500/20 rounded-lg px-3 py-1.5"
+                    >
+                        Sign out
+                    </button>
+                </div>
+
                 <h2 className="text-2xl font-bold bg-clip-text text-transparent bg-linear-to-r from-blue-400 to-emerald-400 mb-6 text-center tracking-tight">
                     Record New Expense
                 </h2>
 
                 <form onSubmit={handleSubmit} className="space-y-6">
-                    <div className="space-y-1">
-                        <label htmlFor="user" className="text-sm font-medium text-slate-300 ml-1">
-                            User <span className="text-rose-400">*</span>
-                        </label>
-                        <div className="relative">
-                            <select
-                                id="user"
-                                required
-                                value={user}
-                                onChange={(e) => setUser(e.target.value)}
-                                className="w-full bg-slate-900/50 border border-slate-700/50 rounded-xl px-4 py-3 pr-10 text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500/50 transition-all cursor-pointer appearance-none"
-                            >
-                                <option value="" disabled>Select user</option>
-                                <option value="Rasel">Rasel</option>
-                                <option value="Robel">Robel</option>
-                            </select>
-                            <div className="pointer-events-none absolute inset-y-0 right-2 flex items-center text-slate-400">
-                                <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M19 9l-7 7-7-7"></path></svg>
-                            </div>
-                        </div>
-                    </div>
-
                     <div className="space-y-1">
                         <label htmlFor="reason" className="text-sm font-medium text-slate-300 ml-1">
                             Expense Reason <span className="text-rose-400">*</span>
