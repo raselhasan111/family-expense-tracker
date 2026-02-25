@@ -1,0 +1,168 @@
+'use client';
+
+import { useState } from 'react';
+
+export default function ExpenseForm() {
+    const [user, setUser] = useState('');
+    const [reason, setReason] = useState('');
+    const [amount, setAmount] = useState('');
+    const [loading, setLoading] = useState(false);
+    const [success, setSuccess] = useState(false);
+    const [errorMSG, setErrorMSG] = useState('');
+
+    const handleSubmit = async (e: React.FormEvent) => {
+        e.preventDefault();
+        setLoading(true);
+        setSuccess(false);
+        setErrorMSG('');
+
+        try {
+            // Get current date formatted (e.g., YYYY-MM-DD or MM/DD/YYYY)
+            const date = new Date().toLocaleDateString('en-US');
+
+            const payload = {
+                user,
+                reason,
+                amount: Number(amount),
+                date
+            };
+
+            const res = await fetch('/api/expenses', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify(payload)
+            });
+
+            const data = await res.json();
+
+            if (!res.ok) {
+                throw new Error(data.error || 'Failed to submit expense');
+            }
+
+            setSuccess(true);
+            setUser('');
+            setReason('');
+            setAmount('');
+
+            setTimeout(() => setSuccess(false), 5000);
+        } catch (error: any) {
+            setErrorMSG(error.message || 'An unexpected error occurred.');
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    return (
+        <div className="w-full max-w-md mx-auto relative z-10">
+            <div className="bg-white/10 backdrop-blur-xl border border-white/20 shadow-2xl rounded-3xl p-8 transition-all hover:shadow-primary/20 hover:border-white/30">
+                <h2 className="text-2xl font-bold bg-clip-text text-transparent bg-linear-to-r from-blue-400 to-emerald-400 mb-6 text-center tracking-tight">
+                    Record New Expense
+                </h2>
+
+                <form onSubmit={handleSubmit} className="space-y-6">
+                    <div className="space-y-1">
+                        <label htmlFor="user" className="text-sm font-medium text-slate-300 ml-1">
+                            User <span className="text-rose-400">*</span>
+                        </label>
+                        <div className="relative">
+                            <select
+                                id="user"
+                                required
+                                value={user}
+                                onChange={(e) => setUser(e.target.value)}
+                                className="w-full bg-slate-900/50 border border-slate-700/50 rounded-xl px-4 py-3 pr-10 text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500/50 transition-all cursor-pointer appearance-none"
+                            >
+                                <option value="" disabled>Select user</option>
+                                <option value="Rasel">Rasel</option>
+                                <option value="Robel">Robel</option>
+                            </select>
+                            <div className="pointer-events-none absolute inset-y-0 right-2 flex items-center text-slate-400">
+                                <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M19 9l-7 7-7-7"></path></svg>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div className="space-y-1">
+                        <label htmlFor="reason" className="text-sm font-medium text-slate-300 ml-1">
+                            Expense Reason <span className="text-rose-400">*</span>
+                        </label>
+                        <input
+                            id="reason"
+                            type="text"
+                            required
+                            value={reason}
+                            onChange={(e) => setReason(e.target.value)}
+                            placeholder="e.g., Groceries, Utility Bill"
+                            className="w-full bg-slate-900/50 border border-slate-700/50 rounded-xl px-4 py-3 text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500/50 transition-all"
+                        />
+                    </div>
+
+                    <div className="space-y-1">
+                        <label htmlFor="amount" className="text-sm font-medium text-slate-300 ml-1">
+                            Amount (৳) <span className="text-rose-400">*</span>
+                        </label>
+                        <div className="relative">
+                            <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500 font-medium pl-1">৳</span>
+                            <input
+                                id="amount"
+                                type="number"
+                                required
+                                min="1"
+                                step="1"
+                                value={amount}
+                                onChange={(e) => setAmount(e.target.value)}
+                                placeholder="0"
+                                className="w-full bg-slate-900/50 border border-slate-700/50 rounded-xl pl-10 pr-4 py-3 text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500/50 transition-all appearance-none"
+                            />
+                        </div>
+                    </div>
+
+                    <button
+                        type="submit"
+                        disabled={loading}
+                        className={`w-full relative group overflow-hidden rounded-xl font-semibold text-white shadow-lg transition-all
+              ${loading
+                                ? 'bg-slate-700 cursor-not-allowed opacity-70'
+                                : 'bg-linear-to-r from-blue-600 to-emerald-600 hover:from-blue-500 hover:to-emerald-500 hover:-translate-y-0.5 hover:shadow-xl hover:shadow-blue-500/20 active:translate-y-0'
+                            } px-4 py-3.5`}
+                    >
+                        <div className="relative z-10 flex items-center justify-center gap-2">
+                            {loading ? (
+                                <>
+                                    <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" fill="none" viewBox="0 0 24 24">
+                                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                    </svg>
+                                    Saving...
+                                </>
+                            ) : (
+                                'Submit Expense'
+                            )}
+                        </div>
+                    </button>
+                </form>
+
+                {/* Notifications Area */}
+                {success && (
+                    <div className="mt-6 p-4 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-sm flex items-center gap-3 animate-in fade-in slide-in-from-bottom-2">
+                        <svg className="w-5 h-5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                        Expense saved successfully!
+                    </div>
+                )}
+
+                {errorMSG && (
+                    <div className="mt-6 p-4 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-400 text-sm flex items-center gap-3 animate-in fade-in slide-in-from-bottom-2">
+                        <svg className="w-5 h-5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                        <div>
+                            <p className="font-semibold mb-1">Error saving expense</p>
+                            <p className="opacity-90">{errorMSG}</p>
+                            <p className="opacity-80 text-xs mt-1">Check console and .env.local file if this persists.</p>
+                        </div>
+                    </div>
+                )}
+            </div>
+        </div>
+    );
+}
