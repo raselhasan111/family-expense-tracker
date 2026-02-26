@@ -1,0 +1,276 @@
+'use client';
+
+import { useState, useEffect, useMemo, useCallback } from 'react';
+
+interface Expense {
+    date: string;
+    userName: string;
+    userEmail: string;
+    reason: string;
+    amount: number;
+}
+
+interface ExpenseListProps {
+    refreshTrigger?: number;
+}
+
+export default function ExpenseList({ refreshTrigger }: ExpenseListProps) {
+    const [expenses, setExpenses] = useState<Expense[]>([]);
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState('');
+    const [selectedUser, setSelectedUser] = useState('all');
+
+    const fetchExpenses = useCallback(async () => {
+        setLoading(true);
+        setError('');
+        try {
+            const res = await fetch('/api/expenses');
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || 'Failed to fetch expenses');
+            setExpenses(data.expenses || []);
+        } catch (err: any) {
+            setError(err.message || 'Failed to load expenses');
+        } finally {
+            setLoading(false);
+        }
+    }, []);
+
+    useEffect(() => {
+        fetchExpenses();
+    }, [fetchExpenses, refreshTrigger]);
+
+    // Filter entries for the current month
+    const currentMonthExpenses = useMemo(() => {
+        const now = new Date();
+        const currentMonth = now.getMonth();
+        const currentYear = now.getFullYear();
+
+        return expenses.filter((expense) => {
+            try {
+                const expenseDate = new Date(expense.date);
+                return (
+                    expenseDate.getMonth() === currentMonth &&
+                    expenseDate.getFullYear() === currentYear
+                );
+            } catch {
+                return false;
+            }
+        });
+    }, [expenses]);
+
+    // Get unique users from current month data (keyed by email, display name)
+    const uniqueUsers = useMemo(() => {
+        const userMap = new Map<string, string>();
+        currentMonthExpenses.forEach((e) => {
+            if (!userMap.has(e.userEmail)) {
+                userMap.set(e.userEmail, e.userName);
+            }
+        });
+        const users = Array.from(userMap.entries()).map(([email, name]) => ({ email, name }));
+
+        // Detect duplicate names to disambiguate with email
+        const nameCount = new Map<string, number>();
+        users.forEach((u) => nameCount.set(u.name, (nameCount.get(u.name) || 0) + 1));
+
+        return users
+            .map((u) => ({
+                ...u,
+                displayName: (nameCount.get(u.name) || 0) > 1 ? `${u.name} (${u.email})` : u.name,
+            }))
+            .sort((a, b) => a.displayName.localeCompare(b.displayName));
+    }, [currentMonthExpenses]);
+
+    // Apply user filter (filter by email)
+    const filteredExpenses = useMemo(() => {
+        if (selectedUser === 'all') return currentMonthExpenses;
+        return currentMonthExpenses.filter((e) => e.userEmail === selectedUser);
+    }, [currentMonthExpenses, selectedUser]);
+
+    // Calculate total
+    const total = useMemo(() => {
+        return filteredExpenses.reduce((sum, e) => sum + e.amount, 0);
+    }, [filteredExpenses]);
+
+    // Format date for display
+    const formatDate = (dateStr: string) => {
+        try {
+            const d = new Date(dateStr);
+            return d.toLocaleDateString('en-GB', {
+                day: '2-digit',
+                month: 'short',
+                year: 'numeric',
+            });
+        } catch {
+            return dateStr;
+        }
+    };
+
+    // Current month name for heading
+    const currentMonthName = new Date().toLocaleDateString('en-US', {
+        month: 'long',
+        year: 'numeric',
+    });
+
+    return (
+        <div className="w-full max-w-3xl mx-auto mt-10 relative z-10">
+            <div className="bg-white/10 backdrop-blur-xl border border-white/20 shadow-2xl rounded-3xl p-6 sm:p-8 transition-all hover:shadow-emerald-500/10">
+
+                {/* Section Header */}
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
+                    <div>
+                        <h2 className="text-2xl font-bold bg-clip-text text-transparent bg-linear-to-r from-blue-400 to-emerald-400 tracking-tight">
+                            Monthly Expenses
+                        </h2>
+                        <p className="text-sm text-slate-400 mt-1">
+                            {currentMonthName}
+                        </p>
+                    </div>
+
+                    {/* User Filter */}
+                    <div className="flex items-center gap-2 w-full sm:w-auto">
+                        <label htmlFor="user-filter" className="text-sm text-slate-400 whitespace-nowrap">
+                            Filter by:
+                        </label>
+                        <select
+                            id="user-filter"
+                            value={selectedUser}
+                            onChange={(e) => setSelectedUser(e.target.value)}
+                            className="flex-1 min-w-0 overflow-hidden text-ellipsis bg-slate-900/60 border border-slate-700/50 rounded-xl px-3 py-2 text-sm text-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500/50 transition-all cursor-pointer appearance-none pr-8"
+                            style={{
+                                backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E")`,
+                                backgroundRepeat: 'no-repeat',
+                                backgroundPosition: 'right 10px center',
+                            }}
+                        >
+                            <option value="all">All Users</option>
+                            {uniqueUsers.map((user) => (
+                                <option key={user.email} value={user.email}>
+                                    {user.displayName}
+                                </option>
+                            ))}
+                        </select>
+                    </div>
+                </div>
+
+                {/* Loading State */}
+                {loading && (
+                    <div className="flex flex-col items-center gap-3 py-12">
+                        <svg className="animate-spin h-7 w-7 text-emerald-400" fill="none" viewBox="0 0 24 24">
+                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                        </svg>
+                        <p className="text-slate-400 text-sm">Loading expenses...</p>
+                    </div>
+                )}
+
+                {/* Error State */}
+                {error && !loading && (
+                    <div className="p-4 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-400 text-sm flex items-center gap-3">
+                        <svg className="w-5 h-5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        </svg>
+                        <span>{error}</span>
+                    </div>
+                )}
+
+                {/* Empty State */}
+                {!loading && !error && filteredExpenses.length === 0 && (
+                    <div className="flex flex-col items-center gap-3 py-12 text-slate-500">
+                        <svg className="w-12 h-12 opacity-40" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M9 5H7a2 2 0 00-2 2v10a2 2 0 002 2h8a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+                        </svg>
+                        <p className="text-sm">No expenses found for {currentMonthName}</p>
+                    </div>
+                )}
+
+                {/* Expense Table */}
+                {!loading && !error && filteredExpenses.length > 0 && (
+                    <>
+                        {/* Desktop Table */}
+                        <div className="hidden sm:block overflow-x-auto">
+                            <table className="w-full text-sm">
+                                <thead>
+                                    <tr className="border-b border-white/10">
+                                        <th className="text-left text-xs font-semibold text-slate-400 uppercase tracking-wider pb-3 pl-3">Date</th>
+                                        <th className="text-left text-xs font-semibold text-slate-400 uppercase tracking-wider pb-3">Name</th>
+                                        <th className="text-left text-xs font-semibold text-slate-400 uppercase tracking-wider pb-3">Reason</th>
+                                        <th className="text-right text-xs font-semibold text-slate-400 uppercase tracking-wider pb-3 pr-3">Amount</th>
+                                    </tr>
+                                </thead>
+                                <tbody className="divide-y divide-white/5">
+                                    {filteredExpenses.map((expense, index) => (
+                                        <tr
+                                            key={index}
+                                            className="hover:bg-white/5 transition-colors group"
+                                        >
+                                            <td className="py-3 pl-3 text-slate-300 whitespace-nowrap">
+                                                {formatDate(expense.date)}
+                                            </td>
+                                            <td className="py-3 text-slate-200 font-medium">
+                                                {expense.userName}
+                                            </td>
+                                            <td className="py-3 text-slate-300">
+                                                {expense.reason}
+                                            </td>
+                                            <td className="py-3 pr-3 text-right text-slate-100 font-semibold tabular-nums">
+                                                ৳{expense.amount.toLocaleString('en-IN')}
+                                            </td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                                <tfoot>
+                                    <tr className="border-t-2 border-emerald-500/30">
+                                        <td colSpan={3} className="py-4 pl-3 text-emerald-400 font-bold text-base max-w-0 truncate">
+                                            Total ({selectedUser === 'all' ? 'All Users' : uniqueUsers.find((u) => u.email === selectedUser)?.name || selectedUser})
+                                        </td>
+                                        <td className="py-4 pr-3 text-right text-emerald-400 font-bold text-lg tabular-nums">
+                                            ৳{total.toLocaleString('en-IN')}
+                                        </td>
+                                    </tr>
+                                </tfoot>
+                            </table>
+                        </div>
+
+                        {/* Mobile Cards */}
+                        <div className="sm:hidden space-y-3">
+                            {filteredExpenses.map((expense, index) => (
+                                <div
+                                    key={index}
+                                    className="bg-white/5 border border-white/10 rounded-xl p-4 space-y-2"
+                                >
+                                    <div className="flex items-center justify-between">
+                                        <span className="text-xs text-slate-400 font-medium">
+                                            {formatDate(expense.date)}
+                                        </span>
+                                        <span className="text-base font-bold text-slate-100 tabular-nums">
+                                            ৳{expense.amount.toLocaleString('en-IN')}
+                                        </span>
+                                    </div>
+                                    <p className="text-sm text-slate-200 font-medium">{expense.reason}</p>
+                                    <p className="text-xs text-slate-400">{expense.userName}</p>
+                                </div>
+                            ))}
+
+                            {/* Mobile Total */}
+                            <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-xl p-4 flex items-center justify-between gap-3 min-w-0">
+                                <span className="text-emerald-400 font-bold truncate min-w-0">
+                                    Total ({selectedUser === 'all' ? 'All Users' : uniqueUsers.find((u) => u.email === selectedUser)?.name || selectedUser})
+                                </span>
+                                <span className="text-emerald-400 font-bold text-lg tabular-nums">
+                                    ৳{total.toLocaleString('en-IN')}
+                                </span>
+                            </div>
+                        </div>
+
+                        {/* Entry Count */}
+                        <div className="mt-4 text-center">
+                            <p className="text-xs text-slate-500">
+                                {filteredExpenses.length} {filteredExpenses.length === 1 ? 'entry' : 'entries'} found
+                            </p>
+                        </div>
+                    </>
+                )}
+            </div>
+        </div>
+    );
+}

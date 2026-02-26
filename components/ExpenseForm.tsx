@@ -3,13 +3,18 @@
 import { useState } from 'react';
 import { useSession, signOut } from 'next-auth/react';
 
-export default function ExpenseForm() {
+interface ExpenseFormProps {
+    onExpenseAdded?: () => void;
+}
+
+export default function ExpenseForm({ onExpenseAdded }: ExpenseFormProps) {
     const { data: session } = useSession();
     const [reason, setReason] = useState('');
     const [amount, setAmount] = useState('');
     const [loading, setLoading] = useState(false);
     const [success, setSuccess] = useState(false);
     const [errorMSG, setErrorMSG] = useState('');
+    const [imgError, setImgError] = useState(false);
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -44,6 +49,7 @@ export default function ExpenseForm() {
 
             setSuccess(true);
             setReason('');
+            onExpenseAdded?.();
             setAmount('');
 
             setTimeout(() => setSuccess(false), 5000);
@@ -55,31 +61,34 @@ export default function ExpenseForm() {
     };
 
     return (
-        <div className="w-full max-w-md mx-auto relative z-10">
-            <div className="bg-white/10 backdrop-blur-xl border border-white/20 shadow-2xl rounded-3xl p-8 transition-all hover:shadow-primary/20 hover:border-white/30">
+        <div className="w-full max-w-3xl mx-auto relative z-10">
+            <div className="bg-white/10 backdrop-blur-xl border border-white/20 shadow-2xl rounded-3xl p-6 sm:p-8 transition-all hover:shadow-primary/20 hover:border-white/30">
 
                 {/* Signed-in user info bar */}
-                <div className="flex items-center justify-between mb-6 pb-4 border-b border-white/10">
-                    <div className="flex items-center gap-3">
-                        {session?.user?.image ? (
+                <div className="flex items-center justify-between gap-3 mb-6 pb-4 border-b border-white/10">
+                    <div className="flex items-center gap-3 min-w-0">
+                        {session?.user?.image && !imgError ? (
                             <img
                                 src={session.user.image}
                                 alt={session.user.name || 'User'}
-                                className="w-9 h-9 rounded-full ring-2 ring-emerald-400/40"
+                                className="w-9 h-9 rounded-full ring-2 ring-emerald-400/40 shrink-0"
+                                onError={() => setImgError(true)}
                             />
                         ) : (
-                            <div className="w-9 h-9 rounded-full bg-emerald-500/20 flex items-center justify-center text-emerald-400 text-sm font-bold">
-                                {session?.user?.name?.[0] || '?'}
+                            <div className="w-9 h-9 rounded-full bg-emerald-500/20 ring-2 ring-emerald-400/40 flex items-center justify-center shrink-0">
+                                <svg className="w-5 h-5 text-emerald-400" fill="currentColor" viewBox="0 0 24 24">
+                                    <path d="M12 12c2.7 0 4.8-2.1 4.8-4.8S14.7 2.4 12 2.4 7.2 4.5 7.2 7.2 9.3 12 12 12zm0 2.4c-3.2 0-9.6 1.6-9.6 4.8v2.4h19.2v-2.4c0-3.2-6.4-4.8-9.6-4.8z" />
+                                </svg>
                             </div>
                         )}
-                        <div>
-                            <p className="text-sm font-semibold text-white leading-tight">{session?.user?.name}</p>
-                            <p className="text-xs text-slate-400">{session?.user?.email}</p>
+                        <div className="min-w-0">
+                            <p className="text-sm font-semibold text-white leading-tight truncate">{session?.user?.name}</p>
+                            <p className="text-xs text-slate-400 truncate">{session?.user?.email}</p>
                         </div>
                     </div>
                     <button
                         onClick={() => signOut()}
-                        className="text-xs text-slate-400 hover:text-rose-400 transition-colors cursor-pointer bg-white/5 hover:bg-rose-500/10 border border-white/10 hover:border-rose-500/20 rounded-lg px-3 py-1.5"
+                        className="shrink-0 text-xs text-slate-400 hover:text-rose-400 transition-colors cursor-pointer bg-white/5 hover:bg-rose-500/10 border border-white/10 hover:border-rose-500/20 rounded-lg px-3 py-1.5"
                     >
                         Sign out
                     </button>

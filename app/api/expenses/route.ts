@@ -87,3 +87,51 @@ export async function POST(request: Request) {
         );
     }
 }
+
+export async function GET() {
+    try {
+        checkEnvVars();
+
+        const privateKey = process.env.GOOGLE_PRIVATE_KEY?.replace(/\\n/g, '\n');
+
+        const auth = new google.auth.GoogleAuth({
+            credentials: {
+                client_email: process.env.GOOGLE_CLIENT_EMAIL,
+                private_key: privateKey,
+            },
+            scopes: [
+                'https://www.googleapis.com/auth/drive',
+                'https://www.googleapis.com/auth/drive.file',
+                'https://www.googleapis.com/auth/spreadsheets',
+            ],
+        });
+
+        const sheets = google.sheets({ version: 'v4', auth });
+        const spreadsheetId = process.env.GOOGLE_SHEET_ID;
+
+        const response = await sheets.spreadsheets.values.get({
+            spreadsheetId,
+            range: 'Sheet1!A:E',
+        });
+
+        const rows = response.data.values || [];
+
+        // Skip header row if present, map rows to objects
+        // Columns: Date | Name | Email | Reason | Amount
+        const expenses = rows.map((row) => ({
+            date: row[0] || '',
+            userName: row[1] || '',
+            userEmail: row[2] || '',
+            reason: row[3] || '',
+            amount: Number(row[4]) || 0,
+        }));
+
+        return NextResponse.json({ expenses }, { status: 200 });
+    } catch (error: any) {
+        console.error('Error fetching expenses:', error);
+        return NextResponse.json(
+            { error: error.message || 'Failed to fetch expenses' },
+            { status: 500 }
+        );
+    }
+}

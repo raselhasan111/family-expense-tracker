@@ -1,7 +1,9 @@
 'use client';
 
+import { useState } from 'react';
 import { useSession } from 'next-auth/react';
 import ExpenseForm from '@/components/ExpenseForm';
+import ExpenseList from '@/components/ExpenseList';
 import TodayDate from '@/components/TodayDate';
 import GoogleSignIn from '@/components/GoogleSignIn';
 
@@ -9,6 +11,11 @@ export default function HomeContent() {
     const { data: session, status } = useSession();
     const isLoading = status === 'loading';
     const isAuthenticated = status === 'authenticated';
+    const [refreshTrigger, setRefreshTrigger] = useState(0);
+
+    const handleExpenseAdded = () => {
+        setRefreshTrigger((prev) => prev + 1);
+    };
 
     return (
         <main className="min-h-screen bg-slate-950 flex flex-col items-center justify-center p-4 sm:p-8 md:p-12 lg:p-24 relative overflow-hidden">
@@ -46,7 +53,10 @@ export default function HomeContent() {
                             <p className="text-slate-400 text-sm">Loading...</p>
                         </div>
                     ) : isAuthenticated ? (
-                        <ExpenseForm />
+                        <>
+                            <ExpenseForm onExpenseAdded={handleExpenseAdded} />
+                            <ExpenseList refreshTrigger={refreshTrigger} />
+                        </>
                     ) : (
                         <GoogleSignIn />
                     )}
