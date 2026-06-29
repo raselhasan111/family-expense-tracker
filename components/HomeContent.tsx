@@ -7,13 +7,21 @@ import ExpenseList from '@/components/ExpenseList';
 import TodayDate from '@/components/TodayDate';
 import GoogleSignIn from '@/components/GoogleSignIn';
 
+type Cashbook = 'family' | 'personal';
+
 export default function HomeContent() {
     const { data: session, status } = useSession();
     const isLoading = status === 'loading';
     const isAuthenticated = status === 'authenticated';
     const [refreshTrigger, setRefreshTrigger] = useState(0);
+    const [cashbook, setCashbook] = useState<Cashbook>('family');
 
     const handleExpenseAdded = () => {
+        setRefreshTrigger((prev) => prev + 1);
+    };
+
+    const handleCashbookChange = (book: Cashbook) => {
+        setCashbook(book);
         setRefreshTrigger((prev) => prev + 1);
     };
 
@@ -42,6 +50,25 @@ export default function HomeContent() {
                     <TodayDate />
                 </div>
 
+                {/* Cashbook Switcher */}
+                {isAuthenticated && (
+                    <div className="flex items-center gap-1 mb-6 w-full max-w-3xl bg-white/5 border border-white/10 rounded-2xl p-1 animate-in fade-in duration-700 delay-75">
+                        {(['family', 'personal'] as Cashbook[]).map((book) => (
+                            <button
+                                key={book}
+                                onClick={() => handleCashbookChange(book)}
+                                className={`flex-1 py-2 px-5 rounded-xl text-sm font-semibold transition-all capitalize cursor-pointer
+                                    ${cashbook === book
+                                        ? 'bg-linear-to-r from-blue-600 to-emerald-600 text-white shadow-md'
+                                        : 'text-slate-400 hover:text-white'
+                                    }`}
+                            >
+                                {book === 'family' ? 'Family Book' : 'Personal Book'}
+                            </button>
+                        ))}
+                    </div>
+                )}
+
                 {/* Content: Loading / Login / Form */}
                 <div className="w-full animate-in fade-in slide-in-from-bottom-8 duration-1000 delay-150">
                     {isLoading ? (
@@ -54,8 +81,8 @@ export default function HomeContent() {
                         </div>
                     ) : isAuthenticated ? (
                         <>
-                            <ExpenseForm onExpenseAdded={handleExpenseAdded} />
-                            <ExpenseList refreshTrigger={refreshTrigger} />
+                            <ExpenseForm onExpenseAdded={handleExpenseAdded} cashbook={cashbook} />
+                            <ExpenseList refreshTrigger={refreshTrigger} cashbook={cashbook} />
                         </>
                     ) : (
                         <GoogleSignIn />
