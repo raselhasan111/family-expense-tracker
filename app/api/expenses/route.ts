@@ -10,6 +10,11 @@ const checkEnvVars = () => {
     }
 };
 
+function resolveTab(book: unknown): string {
+    if (book === 'personal') return 'Personal';
+    return 'Family';
+}
+
 export async function POST(request: Request) {
     try {
         // 1. Validate environment
@@ -17,7 +22,7 @@ export async function POST(request: Request) {
 
         // 2. Parse request body
         const body = await request.json();
-        const { userName, userEmail, reason, amount, date } = body;
+        const { userName, userEmail, reason, amount, date, book } = body;
 
         // Validate inputs
         if (!userName || !userEmail || !reason || !amount || !date) {
@@ -51,12 +56,13 @@ export async function POST(request: Request) {
 
         const sheets = google.sheets({ version: 'v4', auth });
         const spreadsheetId = process.env.GOOGLE_SHEET_ID;
+        const range = `${resolveTab(book)}!A:E`;
 
         // 4. Append data to the sheet
         // Headers: Date | Name | Email | Reason | Amount
         const response = await sheets.spreadsheets.values.append({
             spreadsheetId,
-            range: 'Sheet1!A:E',
+            range,
             valueInputOption: 'USER_ENTERED',
             requestBody: {
                 values: [[date, userName, userEmail, reason, amount]],
@@ -88,7 +94,7 @@ export async function POST(request: Request) {
     }
 }
 
-export async function GET() {
+export async function GET(request: Request) {
     try {
         checkEnvVars();
 
@@ -108,10 +114,12 @@ export async function GET() {
 
         const sheets = google.sheets({ version: 'v4', auth });
         const spreadsheetId = process.env.GOOGLE_SHEET_ID;
+        const { searchParams } = new URL(request.url);
+        const range = `${resolveTab(searchParams.get('book'))}!A:E`;
 
         const response = await sheets.spreadsheets.values.get({
             spreadsheetId,
-            range: 'Sheet1!A:E',
+            range,
         });
 
         const rows = response.data.values || [];

@@ -5,12 +5,15 @@ import { useSession, signOut } from 'next-auth/react';
 
 interface ExpenseFormProps {
     onExpenseAdded?: () => void;
+    cashbook?: 'family' | 'personal';
 }
 
-export default function ExpenseForm({ onExpenseAdded }: ExpenseFormProps) {
+export default function ExpenseForm({ onExpenseAdded, cashbook }: ExpenseFormProps) {
     const { data: session } = useSession();
+    const todayISO = new Date().toISOString().split('T')[0];
     const [reason, setReason] = useState('');
     const [amount, setAmount] = useState('');
+    const [date, setDate] = useState<string>(todayISO);
     const [loading, setLoading] = useState(false);
     const [success, setSuccess] = useState(false);
     const [errorMSG, setErrorMSG] = useState('');
@@ -23,14 +26,16 @@ export default function ExpenseForm({ onExpenseAdded }: ExpenseFormProps) {
         setErrorMSG('');
 
         try {
-            const date = new Date().toLocaleDateString('en-US');
+            const [year, month, day] = date.split('-').map(Number);
+            const formattedDate = `${month}/${day}/${year}`;
 
             const payload = {
                 userName: session?.user?.name || 'Unknown',
                 userEmail: session?.user?.email || 'Unknown',
                 reason,
                 amount: Number(amount),
-                date
+                date: formattedDate,
+                book: cashbook ?? 'family',
             };
 
             const res = await fetch('/api/expenses', {
@@ -49,8 +54,9 @@ export default function ExpenseForm({ onExpenseAdded }: ExpenseFormProps) {
 
             setSuccess(true);
             setReason('');
-            onExpenseAdded?.();
             setAmount('');
+            setDate(new Date().toISOString().split('T')[0]);
+            onExpenseAdded?.();
 
             setTimeout(() => setSuccess(false), 5000);
         } catch (error: any) {
@@ -111,6 +117,21 @@ export default function ExpenseForm({ onExpenseAdded }: ExpenseFormProps) {
                             onChange={(e) => setReason(e.target.value)}
                             placeholder="e.g., Groceries, Utility Bill"
                             className="w-full bg-slate-900/50 border border-slate-700/50 rounded-xl px-4 py-3 text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500/50 transition-all"
+                        />
+                    </div>
+
+                    <div className="space-y-1">
+                        <label htmlFor="date" className="text-sm font-medium text-slate-300 ml-1">
+                            Date <span className="text-rose-400">*</span>
+                        </label>
+                        <input
+                            id="date"
+                            type="date"
+                            required
+                            value={date}
+                            onClick={(e) => (e.currentTarget as HTMLInputElement).showPicker?.()}
+                            onChange={(e) => setDate(e.target.value)}
+                            className="w-full bg-slate-900/50 border border-slate-700/50 rounded-xl px-4 py-3 text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500/50 transition-all [color-scheme:dark] [&::-webkit-calendar-picker-indicator]:cursor-pointer [&::-webkit-clear-button]:hidden"
                         />
                     </div>
 
