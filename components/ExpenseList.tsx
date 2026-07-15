@@ -232,8 +232,8 @@ export default function ExpenseList({ refreshTrigger, cashbook }: ExpenseListPro
                                 <thead>
                                     <tr className="border-b border-white/10">
                                         <th className="text-left text-xs font-semibold text-slate-400 uppercase tracking-wider pb-3 pl-3">Date</th>
-                                        <th className="text-left text-xs font-semibold text-slate-400 uppercase tracking-wider pb-3">Name</th>
-                                        <th className="text-left text-xs font-semibold text-slate-400 uppercase tracking-wider pb-3">Reason</th>
+                                        <th className="text-left text-xs font-semibold text-slate-400 uppercase tracking-wider pb-3 px-3">Name</th>
+                                        <th className="text-left text-xs font-semibold text-slate-400 uppercase tracking-wider pb-3 px-3">Reason</th>
                                         <th className="text-right text-xs font-semibold text-slate-400 uppercase tracking-wider pb-3 pr-3">Amount</th>
                                     </tr>
                                 </thead>
@@ -241,8 +241,8 @@ export default function ExpenseList({ refreshTrigger, cashbook }: ExpenseListPro
                                     {filteredExpenses.map((expense, index) => (
                                         <tr key={index} className="hover:bg-white/5 transition-colors group">
                                             <td className="py-3 pl-3 text-slate-300 whitespace-nowrap">{formatDate(expense.date)}</td>
-                                            <td className="py-3 text-slate-200 font-medium">{expense.userName}</td>
-                                            <td className="py-3 text-slate-300">{expense.reason}</td>
+                                            <td className="py-3 px-3 text-slate-200 font-medium whitespace-nowrap">{expense.userName}</td>
+                                            <td className="py-3 px-3 text-slate-300">{expense.reason}</td>
                                             <td className="py-3 pr-3 text-right text-slate-100 font-semibold tabular-nums">
                                                 ৳{expense.amount.toLocaleString('en-IN')}
                                             </td>
@@ -272,7 +272,7 @@ export default function ExpenseList({ refreshTrigger, cashbook }: ExpenseListPro
                                             ৳{expense.amount.toLocaleString('en-IN')}
                                         </span>
                                     </div>
-                                    <p className="text-sm text-slate-200 font-medium">{expense.reason}</p>
+                                    <p className="text-sm text-slate-200 font-medium break-words">{expense.reason}</p>
                                     <p className="text-xs text-slate-400">{expense.userName}</p>
                                 </div>
                             ))}

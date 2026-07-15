@@ -3,14 +3,14 @@
 import { useState } from 'react';
 import { useSession, signOut } from 'next-auth/react';
 
-interface ExpenseFormProps {
-    onExpenseAdded?: () => void;
-    cashbook?: 'family' | 'personal';
+interface EmergencyFormProps {
+    onEntryAdded?: () => void;
 }
 
-export default function ExpenseForm({ onExpenseAdded, cashbook }: ExpenseFormProps) {
+export default function EmergencyForm({ onEntryAdded }: EmergencyFormProps) {
     const { data: session } = useSession();
     const todayISO = new Date().toISOString().split('T')[0];
+    const [type, setType] = useState<'cashin' | 'cashout'>('cashout');
     const [reason, setReason] = useState('');
     const [amount, setAmount] = useState('');
     const [date, setDate] = useState<string>(todayISO);
@@ -35,28 +35,24 @@ export default function ExpenseForm({ onExpenseAdded, cashbook }: ExpenseFormPro
                 reason,
                 amount: Number(amount),
                 date: formattedDate,
-                book: cashbook ?? 'family',
+                type,
             };
 
-            const res = await fetch('/api/expenses', {
+            const res = await fetch('/api/emergency', {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify(payload)
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload),
             });
 
             const data = await res.json();
 
-            if (!res.ok) {
-                throw new Error(data.error || 'Failed to submit expense');
-            }
+            if (!res.ok) throw new Error(data.error || 'Failed to submit entry');
 
             setSuccess(true);
             setReason('');
             setAmount('');
             setDate(new Date().toISOString().split('T')[0]);
-            onExpenseAdded?.();
+            onEntryAdded?.();
 
             setTimeout(() => setSuccess(false), 5000);
         } catch (error: any) {
@@ -100,14 +96,48 @@ export default function ExpenseForm({ onExpenseAdded, cashbook }: ExpenseFormPro
                     </button>
                 </div>
 
-                <h2 className="text-2xl font-bold bg-clip-text text-transparent bg-linear-to-r from-blue-400 to-emerald-400 mb-6 text-center tracking-tight capitalize">
-                    Record New {cashbook ?? 'family'} Expense
+                <h2 className="text-2xl font-bold bg-clip-text text-transparent bg-linear-to-r from-blue-400 to-emerald-400 mb-6 text-center tracking-tight">
+                    Record Emergency Fund Entry
                 </h2>
 
+
                 <form onSubmit={handleSubmit} className="space-y-6">
+                    <div className="flex gap-4">
+                        <div className="space-y-1 flex-1">
+                            <label htmlFor="type" className="text-sm font-medium text-slate-300 ml-1">
+                                Type <span className="text-rose-400">*</span>
+                            </label>
+                            <select
+                                id="type"
+                                value={type}
+                                onChange={(e) => setType(e.target.value as 'cashin' | 'cashout')}
+                                className="w-full bg-slate-900/50 border border-slate-700/50 rounded-xl px-4 py-3 text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500/50 transition-all cursor-pointer appearance-none"
+                                style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E")`, backgroundRepeat: 'no-repeat', backgroundPosition: 'right 16px center' }}
+                            >
+                                <option value="cashout">Expense</option>
+                                <option value="cashin">Savings</option>
+                            </select>
+                        </div>
+
+                        <div className="space-y-1 flex-1">
+                            <label htmlFor="date" className="text-sm font-medium text-slate-300 ml-1">
+                                Date <span className="text-rose-400">*</span>
+                            </label>
+                            <input
+                                id="date"
+                                type="date"
+                                required
+                                value={date}
+                                onClick={(e) => (e.currentTarget as HTMLInputElement).showPicker?.()}
+                                onChange={(e) => setDate(e.target.value)}
+                                className="w-full bg-slate-900/50 border border-slate-700/50 rounded-xl px-4 py-3 text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500/50 transition-all [color-scheme:dark] [&::-webkit-calendar-picker-indicator]:cursor-pointer [&::-webkit-clear-button]:hidden"
+                            />
+                        </div>
+                    </div>
+
                     <div className="space-y-1">
                         <label htmlFor="reason" className="text-sm font-medium text-slate-300 ml-1">
-                            Expense Reason <span className="text-rose-400">*</span>
+                            Reason <span className="text-rose-400">*</span>
                         </label>
                         <input
                             id="reason"
@@ -115,23 +145,8 @@ export default function ExpenseForm({ onExpenseAdded, cashbook }: ExpenseFormPro
                             required
                             value={reason}
                             onChange={(e) => setReason(e.target.value)}
-                            placeholder="e.g., Groceries, Utility Bill"
+                            placeholder={type === 'cashin' ? 'e.g., Monthly savings, Bonus deposit' : 'e.g., Medical emergency, Home repair'}
                             className="w-full bg-slate-900/50 border border-slate-700/50 rounded-xl px-4 py-3 text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500/50 transition-all"
-                        />
-                    </div>
-
-                    <div className="space-y-1">
-                        <label htmlFor="date" className="text-sm font-medium text-slate-300 ml-1">
-                            Date <span className="text-rose-400">*</span>
-                        </label>
-                        <input
-                            id="date"
-                            type="date"
-                            required
-                            value={date}
-                            onClick={(e) => (e.currentTarget as HTMLInputElement).showPicker?.()}
-                            onChange={(e) => setDate(e.target.value)}
-                            className="w-full bg-slate-900/50 border border-slate-700/50 rounded-xl px-4 py-3 text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500/50 transition-all [color-scheme:dark] [&::-webkit-calendar-picker-indicator]:cursor-pointer [&::-webkit-clear-button]:hidden"
                         />
                     </div>
 
@@ -159,7 +174,7 @@ export default function ExpenseForm({ onExpenseAdded, cashbook }: ExpenseFormPro
                         type="submit"
                         disabled={loading}
                         className={`w-full relative group overflow-hidden rounded-xl font-semibold text-white shadow-lg transition-all
-              ${loading
+                            ${loading
                                 ? 'bg-slate-700 cursor-not-allowed opacity-70'
                                 : 'bg-linear-to-r from-blue-600 to-emerald-600 hover:from-blue-500 hover:to-emerald-500 hover:-translate-y-0.5 hover:shadow-xl hover:shadow-blue-500/20 active:translate-y-0'
                             } px-4 py-3.5`}
@@ -174,17 +189,16 @@ export default function ExpenseForm({ onExpenseAdded, cashbook }: ExpenseFormPro
                                     Saving...
                                 </>
                             ) : (
-                                <span className="capitalize">Submit {cashbook ?? 'family'} Expense</span>
+                                'Submit Entry'
                             )}
                         </div>
                     </button>
                 </form>
 
-                {/* Notifications Area */}
                 {success && (
                     <div className="mt-6 p-4 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-sm flex items-center gap-3 animate-in fade-in slide-in-from-bottom-2">
                         <svg className="w-5 h-5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
-                        Expense saved successfully!
+                        Entry saved successfully!
                     </div>
                 )}
 
@@ -192,7 +206,7 @@ export default function ExpenseForm({ onExpenseAdded, cashbook }: ExpenseFormPro
                     <div className="mt-6 p-4 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-400 text-sm flex items-center gap-3 animate-in fade-in slide-in-from-bottom-2">
                         <svg className="w-5 h-5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
                         <div>
-                            <p className="font-semibold mb-1">Error saving expense</p>
+                            <p className="font-semibold mb-1">Error saving entry</p>
                             <p className="opacity-90">{errorMSG}</p>
                             <p className="opacity-80 text-xs mt-1">Check console and .env.local file if this persists.</p>
                         </div>
