@@ -32,6 +32,15 @@ The spreadsheet is the single source of truth. Sheet columns are fixed and posit
 - **Read**: [components/ExpenseList.tsx](components/ExpenseList.tsx) GETs all rows, then does all filtering/aggregation **client-side**: filters to the current calendar month, derives the user filter dropdown (keyed by email, disambiguating duplicate display names), and sums totals.
 - **Refresh coupling**: [components/HomeContent.tsx](components/HomeContent.tsx) owns a `refreshTrigger` counter passed to `ExpenseList`; `ExpenseForm` calls `onExpenseAdded()` after a successful POST to bump it and force a re-fetch. Keep this wiring intact when adding mutations.
 
+### Emergency Fund (third cashbook)
+
+A third sheet tab **`Family-Emergency`** (`A:F`) stores family emergency fund entries with columns **Date | Name | Email | Reason | Amount | Type**, where `Type` is `cashin` (savings/contribution) or `cashout` (emergency spend). This tab must be created manually in the same Google Sheet.
+
+- **API**: [app/api/emergency/route.ts](app/api/emergency/route.ts) — separate route (not the expenses route) because the column shape differs (`A:F` vs `A:E`). POST accepts `{ userName, userEmail, reason, amount, date, type }`; GET returns all entries.
+- **UI**: [components/EmergencyForm.tsx](components/EmergencyForm.tsx) + [components/EmergencyList.tsx](components/EmergencyList.tsx), rendered when the "Emergency Fund" tab is selected in [components/HomeContent.tsx](components/HomeContent.tsx).
+- **Balance**: All-time Current Balance = Σ cash-in − Σ cash-out (shown in a summary card, never period-filtered). The two entry lists (cash-ins, cash-outs) each have a month/all period selector.
+- The fund is **shared across all users** — no per-user filter.
+
 ### Conventions
 
 - `date` strings are parsed with `new Date(...)` in several places; the write format (`en-US`) and the month-filter logic depend on each other — change them together.
