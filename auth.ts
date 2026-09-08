@@ -23,7 +23,15 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
                 const user = findAllowedUser(email)
                 if (!user) return null
 
-                const ok = await verifyCode(email, code)
+                // A verification error (Sheets read/write, config) must fail the
+                // login cleanly — never bubble up as an unhandled 500.
+                let ok = false
+                try {
+                    ok = await verifyCode(email, code)
+                } catch (error) {
+                    console.error("email-code verify failed:", error)
+                    return null
+                }
                 if (!ok) return null
 
                 return { id: email, email, name: user.name }
