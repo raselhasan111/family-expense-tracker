@@ -52,21 +52,22 @@ async function readRows(): Promise<Row[]> {
     range: RANGE,
   });
   const values = res.data.values ?? [];
-  return values
-    .map((row, index) => ({
-      rowNumber: index + 1,
-      email: String(row[0] ?? "").toLowerCase(),
-      codeHash: String(row[1] ?? ""),
-      expiresAt: Number(row[2] ?? 0),
-      attempts: Number(row[3] ?? 0),
-      windowStart: Number(row[4] ?? 0),
-      sentCount: Number(row[5] ?? 0),
-    }))
-    .filter((r) => r.email && r.email !== "email"); // skip blanks / optional header
+  // Return every row (including blanks) so rowNumber stays aligned to the actual
+  // sheet row and the row count reflects the true extent for appends.
+  return values.map((row, index) => ({
+    rowNumber: index + 1,
+    email: String(row[0] ?? "").toLowerCase().trim(),
+    codeHash: String(row[1] ?? ""),
+    expiresAt: Number(row[2] ?? 0),
+    attempts: Number(row[3] ?? 0),
+    windowStart: Number(row[4] ?? 0),
+    sentCount: Number(row[5] ?? 0),
+  }));
 }
 
 function findRow(rows: Row[], email: string): Row | undefined {
-  const target = email.toLowerCase();
+  const target = email.toLowerCase().trim();
+  // Exact-email match ignores blank/header rows without special-casing them.
   return rows.find((r) => r.email === target);
 }
 
@@ -88,15 +89,6 @@ async function writeRow(row: Row): Promise<void> {
   });
 }
 
-async function appendRow(values: (string | number)[]): Promise<void> {
-  const sheets = getSheetsClient();
-  await sheets.spreadsheets.values.append({
-    spreadsheetId: spreadsheetId(),
-    range: RANGE,
-    valueInputOption: "RAW",
-    requestBody: { values: [values.map(String)] },
-  });
-}
 
 /**
  * Generate and persist a login code for an (already allowlisted) email.
@@ -121,21 +113,19 @@ export async function requestCode(email: string): Promise<{ code: string | null 
 
   // Cryptographically secure 6-digit code.
   const code = String(randomInt(0, 1_000_000)).padStart(6, "0");
-  const next: Row = {
-    rowNumber: existing?.rowNumber ?? 0,
+  // Reuse the email's existing row, or write to the first empty row. Writing to
+  // an explicit A:F range (rather than values.append) keeps columns aligned —
+  // append's table detection can drift rows sideways once a cell goes blank.
+  const rowNumber = existing?.rowNumber ?? rows.length + 1;
+  await writeRow({
+    rowNumber,
     email: clean,
     codeHash: hashCode(clean, code),
     expiresAt: now + CODE_TTL_MS,
     attempts: 0,
     windowStart,
     sentCount,
-  };
-
-  if (existing) {
-    await writeRow(next);
-  } else {
-    await appendRow([next.email, next.codeHash, next.expiresAt, next.attempts, next.windowStart, next.sentCount]);
-  }
+  });
   return { code };
 }
 
