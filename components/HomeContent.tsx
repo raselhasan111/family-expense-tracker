@@ -7,7 +7,7 @@ import ExpenseList from "@/components/ExpenseList";
 import EmergencyForm from "@/components/EmergencyForm";
 import EmergencyList from "@/components/EmergencyList";
 import TodayDate from "@/components/TodayDate";
-import GoogleSignIn from "@/components/GoogleSignIn";
+import SignIn from "@/components/SignIn";
 
 type Cashbook = "family" | "personal" | "emergency";
 
@@ -137,7 +137,7 @@ export default function HomeContent() {
               )}
             </>
           ) : (
-            <GoogleSignIn />
+            <SignIn />
           )}
         </div>
 

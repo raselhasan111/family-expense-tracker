@@ -29,9 +29,8 @@ export default function ExpenseForm({ onExpenseAdded, cashbook }: ExpenseFormPro
             const [year, month, day] = date.split('-').map(Number);
             const formattedDate = `${month}/${day}/${year}`;
 
+            // Identity is derived server-side from the session; not sent here.
             const payload = {
-                userName: session?.user?.name || 'Unknown',
-                userEmail: session?.user?.email || 'Unknown',
                 reason,
                 amount: Number(amount),
                 date: formattedDate,

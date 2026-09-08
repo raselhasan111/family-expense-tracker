@@ -1,5 +1,7 @@
 import { NextResponse } from 'next/server';
 import { google } from 'googleapis';
+import { auth as getSession } from '@/auth';
+import { isAllowed } from '@/lib/allowlist';
 
 // Validate required environment variables
 const checkEnvVars = () => {
@@ -17,17 +19,30 @@ function resolveTab(book: unknown): string {
 
 export async function POST(request: Request) {
     try {
-        // 1. Validate environment
+        // 1. Require an authenticated, allowlisted session. Identity is taken
+        //    from the session — never from the request body — so a user cannot
+        //    write an expense under someone else's name.
+        const session = await getSession();
+        if (!session?.user?.email) {
+            return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+        }
+        if (!isAllowed(session.user.email)) {
+            return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+        }
+        const userEmail = session.user.email;
+        const userName = session.user.name || userEmail;
+
+        // 2. Validate environment
         checkEnvVars();
 
-        // 2. Parse request body
+        // 3. Parse request body
         const body = await request.json();
-        const { userName, userEmail, reason, amount, date, book } = body;
+        const { reason, amount, date, book } = body;
 
         // Validate inputs
-        if (!userName || !userEmail || !reason || !amount || !date) {
+        if (!reason || !amount || !date) {
             return NextResponse.json(
-                { error: 'Missing required fields: userName, userEmail, reason, amount, and date are required.' },
+                { error: 'Missing required fields: reason, amount, and date are required.' },
                 { status: 400 }
             );
         }
@@ -96,6 +111,16 @@ export async function POST(request: Request) {
 
 export async function GET(request: Request) {
     try {
+        // Expense rows contain names, emails and amounts — require an
+        // authenticated, allowlisted session before returning any of it.
+        const session = await getSession();
+        if (!session?.user?.email) {
+            return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+        }
+        if (!isAllowed(session.user.email)) {
+            return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+        }
+
         checkEnvVars();
 
         const privateKey = process.env.GOOGLE_PRIVATE_KEY?.replace(/\\n/g, '\n');

@@ -1,5 +1,7 @@
 import { NextResponse } from 'next/server';
 import { google } from 'googleapis';
+import { auth } from '@/auth';
+import { isAllowed } from '@/lib/allowlist';
 
 const checkEnvVars = () => {
     const requiredEnvVars = ['GOOGLE_CLIENT_EMAIL', 'GOOGLE_PRIVATE_KEY', 'GOOGLE_SHEET_ID'];
@@ -28,14 +30,25 @@ const RANGE = 'Family-Emergency!A:F';
 
 export async function POST(request: Request) {
     try {
+        // Identity comes from the authenticated session, not the request body.
+        const session = await auth();
+        if (!session?.user?.email) {
+            return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+        }
+        if (!isAllowed(session.user.email)) {
+            return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+        }
+        const userEmail = session.user.email;
+        const userName = session.user.name || userEmail;
+
         checkEnvVars();
 
         const body = await request.json();
-        const { userName, userEmail, reason, amount, date, type } = body;
+        const { reason, amount, date, type } = body;
 
-        if (!userName || !userEmail || !reason || !amount || !date || !type) {
+        if (!reason || !amount || !date || !type) {
             return NextResponse.json(
-                { error: 'Missing required fields: userName, userEmail, reason, amount, date, and type are required.' },
+                { error: 'Missing required fields: reason, amount, date, and type are required.' },
                 { status: 400 }
             );
         }
@@ -87,6 +100,14 @@ export async function POST(request: Request) {
 
 export async function GET() {
     try {
+        const session = await auth();
+        if (!session?.user?.email) {
+            return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+        }
+        if (!isAllowed(session.user.email)) {
+            return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+        }
+
         checkEnvVars();
 
         const sheets = google.sheets({ version: 'v4', auth: getAuth() });
