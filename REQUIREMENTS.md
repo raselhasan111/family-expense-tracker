@@ -13,23 +13,25 @@ Default view is **Family Book**.
 
 ## Sheet Schema
 
-Both tabs share the same column layout (columns A–E):
+Both tabs share columns A–E; `Personal` has one extra column, **F = Tag**:
 
 ```
-Date | Name | Email | Reason | Amount
+Family    (A:E)  Date | Name | Email | Reason | Amount
+Personal  (A:F)  Date | Name | Email | Reason | Amount | Tag
 ```
 
 - **Date**: `M/D/YYYY` format (e.g. `6/29/2026`) — written by the form, parsed client-side with `new Date()`
 - **Name / Email**: from the signed-in Google account (NextAuth session)
 - **Reason**: free-text description
 - **Amount**: numeric, Bangladeshi Taka (৳)
+- **Tag** (`Personal` only): free-text category, mandatory on new personal entries. Rows written before the feature shipped have an empty/absent column F and render as untagged — they are not backfilled.
 
 ## API Contract
 
 ### GET `/api/expenses?book=family|personal`
 
 - `book=family` (default when missing or unknown) → reads `Family!A:E`
-- `book=personal` → reads `Personal!A:E`
+- `book=personal` → reads `Personal!A:F`
 - Any unrecognised value falls back to `Family` (safe default)
 
 ### POST `/api/expenses`
@@ -42,12 +44,13 @@ Request body:
   "reason": "string",
   "amount": 100,
   "date": "6/29/2026",
-  "book": "family | personal"
+  "book": "family | personal",
+  "tag": "string (personal only, required)"
 }
 ```
 
-- `book` is optional; defaults to `family` → writes to `Family!A:E`
-- `book=personal` → writes to `Personal!A:E`
+- `book` is optional; defaults to `family` → writes to `Family!A:E` (no `tag`; it is ignored for family)
+- `book=personal` → writes to `Personal!A:F`, with `tag` in column F
 
 ## Tab Mapping (Single Source of Truth)
 

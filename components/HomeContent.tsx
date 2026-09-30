@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import { useSession } from "next-auth/react";
 import ExpenseForm from "@/components/ExpenseForm";
 import ExpenseList from "@/components/ExpenseList";
@@ -17,6 +17,14 @@ export default function HomeContent() {
   const isAuthenticated = status === "authenticated";
   const [refreshTrigger, setRefreshTrigger] = useState(0);
   const [cashbook, setCashbook] = useState<Cashbook>("family");
+  // Tag vocabulary reported by ExpenseList, handed to ExpenseForm so the two
+  // share a single fetch of the sheet.
+  const [tags, setTags] = useState<string[]>([]);
+
+  // Stable identity: ExpenseList reports tags from an effect keyed on this.
+  const handleTagsChange = useCallback((next: string[]) => {
+    setTags(next);
+  }, []);
 
   const handleExpenseAdded = () => {
     setRefreshTrigger((prev) => prev + 1);
@@ -24,6 +32,7 @@ export default function HomeContent() {
 
   const handleCashbookChange = (book: Cashbook) => {
     setCashbook(book);
+    setTags([]);
     setRefreshTrigger((prev) => prev + 1);
   };
 
@@ -128,10 +137,12 @@ export default function HomeContent() {
                   <ExpenseForm
                     onExpenseAdded={handleExpenseAdded}
                     cashbook={cashbook}
+                    existingTags={tags}
                   />
                   <ExpenseList
                     refreshTrigger={refreshTrigger}
                     cashbook={cashbook}
+                    onTagsChange={handleTagsChange}
                   />
                 </>
               )}
