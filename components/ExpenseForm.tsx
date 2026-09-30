@@ -6,24 +6,66 @@ import { useSession, signOut } from 'next-auth/react';
 interface ExpenseFormProps {
     onExpenseAdded?: () => void;
     cashbook?: 'family' | 'personal';
+    // Tags already in use, supplied by HomeContent from the list's fetch.
+    existingTags?: string[];
 }
 
-export default function ExpenseForm({ onExpenseAdded, cashbook }: ExpenseFormProps) {
+const NEW_TAG = '__new__';
+const MAX_TAG_LENGTH = 40;
+const FORMULA_PREFIX = /^[=+\-@]/;
+
+const fieldClass = 'w-full bg-slate-900/50 border border-slate-700/50 rounded-xl px-4 py-3 text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500/50 transition-all';
+
+const tagSelectStyle = {
+    backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E")`,
+    backgroundRepeat: 'no-repeat' as const,
+    backgroundPosition: 'right 16px center',
+};
+
+export default function ExpenseForm({ onExpenseAdded, cashbook, existingTags = [] }: ExpenseFormProps) {
     const { data: session } = useSession();
+    const isPersonal = cashbook === 'personal';
     const todayISO = new Date().toISOString().split('T')[0];
     const [reason, setReason] = useState('');
     const [amount, setAmount] = useState('');
     const [date, setDate] = useState<string>(todayISO);
+    const [tag, setTag] = useState('');
+    const [tagMode, setTagMode] = useState<'select' | 'new'>('select');
     const [loading, setLoading] = useState(false);
     const [success, setSuccess] = useState(false);
     const [errorMSG, setErrorMSG] = useState('');
     const [imgError, setImgError] = useState(false);
 
+    // With no vocabulary to pick from there is nothing to select, so fall back
+    // to free text. Derived rather than stored, so the select appears on its own
+    // once the list reports the first tags.
+    const showTagSelect = tagMode === 'select' && existingTags.length > 0;
+
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
-        setLoading(true);
         setSuccess(false);
         setErrorMSG('');
+
+        // A tag is mandatory on personal entries; reuse the existing casing when
+        // the typed tag already exists so "Food" and "food" don't fork.
+        let cleanTag = tag.trim();
+        if (isPersonal) {
+            if (!cleanTag) {
+                setErrorMSG('Please choose or enter a tag.');
+                return;
+            }
+            if (cleanTag.length > MAX_TAG_LENGTH) {
+                setErrorMSG(`Tag must be ${MAX_TAG_LENGTH} characters or fewer.`);
+                return;
+            }
+            if (FORMULA_PREFIX.test(cleanTag)) {
+                setErrorMSG('Tag cannot start with =, +, - or @.');
+                return;
+            }
+            cleanTag = existingTags.find((t) => t.toLowerCase() === cleanTag.toLowerCase()) ?? cleanTag;
+        }
+
+        setLoading(true);
 
         try {
             const [year, month, day] = date.split('-').map(Number);
@@ -35,6 +77,7 @@ export default function ExpenseForm({ onExpenseAdded, cashbook }: ExpenseFormPro
                 amount: Number(amount),
                 date: formattedDate,
                 book: cashbook ?? 'family',
+                ...(isPersonal && { tag: cleanTag }),
             };
 
             const res = await fetch('/api/expenses', {
@@ -54,6 +97,8 @@ export default function ExpenseForm({ onExpenseAdded, cashbook }: ExpenseFormPro
             setSuccess(true);
             setReason('');
             setAmount('');
+            setTag('');
+            setTagMode('select');
             setDate(new Date().toISOString().split('T')[0]);
             onExpenseAdded?.();
 
@@ -115,9 +160,73 @@ export default function ExpenseForm({ onExpenseAdded, cashbook }: ExpenseFormPro
                             value={reason}
                             onChange={(e) => setReason(e.target.value)}
                             placeholder="e.g., Groceries, Utility Bill"
-                            className="w-full bg-slate-900/50 border border-slate-700/50 rounded-xl px-4 py-3 text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500/50 transition-all"
+                            className={fieldClass}
                         />
                     </div>
+
+                    {/* Tag — personal expenses only, and mandatory there */}
+                    {isPersonal && (
+                        <div className="space-y-1">
+                            <label htmlFor="tag" className="text-sm font-medium text-slate-300 ml-1">
+                                Tag <span className="text-rose-400">*</span>
+                            </label>
+
+                            {showTagSelect ? (
+                                <select
+                                    id="tag"
+                                    required
+                                    value={tag}
+                                    onChange={(e) => {
+                                        if (e.target.value === NEW_TAG) {
+                                            setTag('');
+                                            setTagMode('new');
+                                        } else {
+                                            setTag(e.target.value);
+                                        }
+                                    }}
+                                    className={`${fieldClass} appearance-none cursor-pointer pr-10 ${tag ? '' : 'text-slate-500'}`}
+                                    style={tagSelectStyle}
+                                >
+                                    <option value="" disabled>Select a tag</option>
+                                    {existingTags.map((t) => (
+                                        <option key={t} value={t} className="text-slate-100">{t}</option>
+                                    ))}
+                                    <option value={NEW_TAG} className="text-slate-100">+ Add new tag…</option>
+                                </select>
+                            ) : (
+                                <>
+                                    <input
+                                        id="tag"
+                                        type="text"
+                                        required
+                                        maxLength={MAX_TAG_LENGTH}
+                                        value={tag}
+                                        onChange={(e) => {
+                                            setTag(e.target.value);
+                                            // Commit to free text, so the select
+                                            // does not swap in mid-typing when
+                                            // the list reports its first tags.
+                                            setTagMode('new');
+                                        }}
+                                        placeholder="e.g., Food, Transport, Bills"
+                                        className={fieldClass}
+                                    />
+                                    {existingTags.length > 0 && (
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                setTag('');
+                                                setTagMode('select');
+                                            }}
+                                            className="text-xs text-blue-400 hover:text-blue-300 ml-1 mt-1 transition-colors"
+                                        >
+                                            Choose an existing tag instead
+                                        </button>
+                                    )}
+                                </>
+                            )}
+                        </div>
+                    )}
 
                     <div className="space-y-1">
                         <label htmlFor="date" className="text-sm font-medium text-slate-300 ml-1">

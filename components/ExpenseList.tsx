@@ -9,12 +9,18 @@ interface Expense {
     userEmail: string;
     reason: string;
     amount: number;
+    tag: string;
 }
 
 interface ExpenseListProps {
     refreshTrigger?: number;
     cashbook?: 'family' | 'personal';
+    // Reports the tag vocabulary found in the fetched rows, so ExpenseForm can
+    // offer it without issuing a second fetch of the same data.
+    onTagsChange?: (tags: string[]) => void;
 }
+
+const UNTAGGED = '__untagged__';
 
 const selectStyle = {
     backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E")`,
@@ -33,7 +39,17 @@ function formatMonthLabel(ym: string): string {
     return new Date(year, month - 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
 }
 
-export default function ExpenseList({ refreshTrigger, cashbook }: ExpenseListProps) {
+// Dedupe case-insensitively, keeping the casing first seen, then sort.
+function collectTags(expenses: Expense[]): string[] {
+    const byLower = new Map<string, string>();
+    expenses.forEach((e) => {
+        const tag = e.tag?.trim();
+        if (tag && !byLower.has(tag.toLowerCase())) byLower.set(tag.toLowerCase(), tag);
+    });
+    return Array.from(byLower.values()).sort((a, b) => a.localeCompare(b));
+}
+
+export default function ExpenseList({ refreshTrigger, cashbook, onTagsChange }: ExpenseListProps) {
     const { data: session } = useSession();
     const isPersonal = cashbook === 'personal';
     const currentYM = toYearMonth(new Date());
@@ -43,6 +59,7 @@ export default function ExpenseList({ refreshTrigger, cashbook }: ExpenseListPro
     const [error, setError] = useState('');
     const [selectedUser, setSelectedUser] = useState('all');
     const [selectedMonth, setSelectedMonth] = useState<string>(currentYM);
+    const [selectedTag, setSelectedTag] = useState('all');
 
     const fetchExpenses = useCallback(async () => {
         setLoading(true);
@@ -62,9 +79,17 @@ export default function ExpenseList({ refreshTrigger, cashbook }: ExpenseListPro
 
     useEffect(() => {
         setSelectedUser('all');
+        setSelectedTag('all');
         setSelectedMonth(currentYM);
         fetchExpenses();
     }, [fetchExpenses, refreshTrigger]);
+
+    // Every tag ever used in this cashbook — the vocabulary offered by the form.
+    const allTags = useMemo(() => collectTags(expenses), [expenses]);
+
+    useEffect(() => {
+        onTagsChange?.(allTags);
+    }, [allTags, onTagsChange]);
 
     // Months that have data, newest first, capped at 12
     const availableMonths = useMemo(() => {
@@ -119,11 +144,35 @@ export default function ExpenseList({ refreshTrigger, cashbook }: ExpenseListPro
     }, [selectedMonthExpenses]);
 
     // Apply personal/user filter
-    const filteredExpenses = useMemo(() => {
+    const ownedExpenses = useMemo(() => {
         if (isPersonal) return selectedMonthExpenses.filter((e) => e.userEmail === session?.user?.email);
         if (selectedUser === 'all') return selectedMonthExpenses;
         return selectedMonthExpenses.filter((e) => e.userEmail === selectedUser);
     }, [selectedMonthExpenses, selectedUser, isPersonal, session?.user?.email]);
+
+    // Tag options for the visible rows (personal mode only), mirroring the way
+    // the user dropdown is scoped to the selected month.
+    const monthTags = useMemo(() => (isPersonal ? collectTags(ownedExpenses) : []), [isPersonal, ownedExpenses]);
+    const hasUntagged = useMemo(
+        () => isPersonal && ownedExpenses.some((e) => !e.tag?.trim()),
+        [isPersonal, ownedExpenses]
+    );
+
+    // Drop a tag selection that no longer exists in the visible rows
+    useEffect(() => {
+        if (selectedTag === 'all') return;
+        const stillThere = selectedTag === UNTAGGED
+            ? hasUntagged
+            : monthTags.some((t) => t.toLowerCase() === selectedTag.toLowerCase());
+        if (!stillThere) setSelectedTag('all');
+    }, [monthTags, hasUntagged, selectedTag]);
+
+    // Apply tag filter
+    const filteredExpenses = useMemo(() => {
+        if (!isPersonal || selectedTag === 'all') return ownedExpenses;
+        if (selectedTag === UNTAGGED) return ownedExpenses.filter((e) => !e.tag?.trim());
+        return ownedExpenses.filter((e) => e.tag?.trim().toLowerCase() === selectedTag.toLowerCase());
+    }, [ownedExpenses, isPersonal, selectedTag]);
 
     const total = useMemo(() => filteredExpenses.reduce((sum, e) => sum + e.amount, 0), [filteredExpenses]);
 
@@ -135,11 +184,16 @@ export default function ExpenseList({ refreshTrigger, cashbook }: ExpenseListPro
         }
     };
 
-    const totalLabel = isPersonal
+    const baseTotalLabel = isPersonal
         ? (session?.user?.name ?? 'You')
         : selectedUser === 'all'
             ? 'All Users'
             : uniqueUsers.find((u) => u.email === selectedUser)?.name || selectedUser;
+
+    const tagLabel = selectedTag === UNTAGGED ? 'Untagged' : selectedTag;
+    const totalLabel = isPersonal && selectedTag !== 'all'
+        ? `${baseTotalLabel} · ${tagLabel}`
+        : baseTotalLabel;
 
     return (
         <div className="w-full max-w-3xl mx-auto mt-10 relative z-10">
@@ -161,6 +215,7 @@ export default function ExpenseList({ refreshTrigger, cashbook }: ExpenseListPro
                             onChange={(e) => {
                                 setSelectedMonth(e.target.value);
                                 setSelectedUser('all');
+                                setSelectedTag('all');
                             }}
                             className={selectClass}
                             style={selectStyle}
@@ -187,6 +242,25 @@ export default function ExpenseList({ refreshTrigger, cashbook }: ExpenseListPro
                                         {user.displayName}
                                     </option>
                                 ))}
+                            </select>
+                        )}
+
+                        {/* Tag selector — personal mode only */}
+                        {isPersonal && (monthTags.length > 0 || hasUntagged) && (
+                            <select
+                                id="tag-filter"
+                                value={selectedTag}
+                                onChange={(e) => setSelectedTag(e.target.value)}
+                                className={selectClass}
+                                style={selectStyle}
+                            >
+                                <option value="all">All Tags</option>
+                                {monthTags.map((tag) => (
+                                    <option key={tag} value={tag}>
+                                        {tag}
+                                    </option>
+                                ))}
+                                {hasUntagged && <option value={UNTAGGED}>Untagged</option>}
                             </select>
                         )}
                     </div>
@@ -234,6 +308,9 @@ export default function ExpenseList({ refreshTrigger, cashbook }: ExpenseListPro
                                         <th className="text-left text-xs font-semibold text-slate-400 uppercase tracking-wider pb-3 pl-3">Date</th>
                                         <th className="text-left text-xs font-semibold text-slate-400 uppercase tracking-wider pb-3 px-3">Name</th>
                                         <th className="text-left text-xs font-semibold text-slate-400 uppercase tracking-wider pb-3 px-3">Reason</th>
+                                        {isPersonal && (
+                                            <th className="text-left text-xs font-semibold text-slate-400 uppercase tracking-wider pb-3 px-3">Tag</th>
+                                        )}
                                         <th className="text-right text-xs font-semibold text-slate-400 uppercase tracking-wider pb-3 pr-3">Amount</th>
                                     </tr>
                                 </thead>
@@ -243,6 +320,17 @@ export default function ExpenseList({ refreshTrigger, cashbook }: ExpenseListPro
                                             <td className="py-3 pl-3 text-slate-300 whitespace-nowrap">{formatDate(expense.date)}</td>
                                             <td className="py-3 px-3 text-slate-200 font-medium whitespace-nowrap">{expense.userName}</td>
                                             <td className="py-3 px-3 text-slate-300">{expense.reason}</td>
+                                            {isPersonal && (
+                                                <td className="py-3 px-3 whitespace-nowrap">
+                                                    {expense.tag?.trim() ? (
+                                                        <span className="inline-block bg-white/5 border border-white/10 rounded-lg px-2 py-0.5 text-xs text-slate-300">
+                                                            {expense.tag}
+                                                        </span>
+                                                    ) : (
+                                                        <span className="text-slate-600">—</span>
+                                                    )}
+                                                </td>
+                                            )}
                                             <td className="py-3 pr-3 text-right text-slate-100 font-semibold tabular-nums">
                                                 ৳{expense.amount.toLocaleString('en-IN')}
                                             </td>
@@ -251,7 +339,7 @@ export default function ExpenseList({ refreshTrigger, cashbook }: ExpenseListPro
                                 </tbody>
                                 <tfoot>
                                     <tr className="border-t-2 border-emerald-500/30">
-                                        <td colSpan={3} className="py-4 pl-3 text-emerald-400 font-bold text-base max-w-0 truncate">
+                                        <td colSpan={isPersonal ? 4 : 3} className="py-4 pl-3 text-emerald-400 font-bold text-base max-w-0 truncate">
                                             Total ({totalLabel})
                                         </td>
                                         <td className="py-4 pr-3 text-right text-emerald-400 font-bold text-lg tabular-nums">
@@ -273,7 +361,14 @@ export default function ExpenseList({ refreshTrigger, cashbook }: ExpenseListPro
                                         </span>
                                     </div>
                                     <p className="text-sm text-slate-200 font-medium break-words">{expense.reason}</p>
-                                    <p className="text-xs text-slate-400">{expense.userName}</p>
+                                    <div className="flex items-center justify-between gap-2">
+                                        <p className="text-xs text-slate-400 truncate">{expense.userName}</p>
+                                        {isPersonal && expense.tag?.trim() && (
+                                            <span className="shrink-0 bg-white/5 border border-white/10 rounded-lg px-2 py-0.5 text-xs text-slate-300">
+                                                {expense.tag}
+                                            </span>
+                                        )}
+                                    </div>
                                 </div>
                             ))}
 

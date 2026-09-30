@@ -17,6 +17,18 @@ function resolveTab(book: unknown): string {
     return 'Family';
 }
 
+// Personal entries carry a mandatory Tag in column F; Family stays at A:E.
+function resolveRange(book: unknown): string {
+    const tab = resolveTab(book);
+    return tab === 'Personal' ? `${tab}!A:F` : `${tab}!A:E`;
+}
+
+const MAX_TAG_LENGTH = 40;
+
+// Rows are written with valueInputOption: 'USER_ENTERED', so a leading =, +, -
+// or @ would be stored as a live spreadsheet formula rather than as text.
+const FORMULA_PREFIX = /^[=+\-@]/;
+
 export async function POST(request: Request) {
     try {
         // 1. Require an authenticated, allowlisted session. Identity is taken
@@ -37,7 +49,7 @@ export async function POST(request: Request) {
 
         // 3. Parse request body
         const body = await request.json();
-        const { reason, amount, date, book } = body;
+        const { reason, amount, date, book, tag } = body;
 
         // Validate inputs
         if (!reason || !amount || !date) {
@@ -52,6 +64,33 @@ export async function POST(request: Request) {
                 { error: 'Amount must be a valid number.' },
                 { status: 400 }
             );
+        }
+
+        // Tags apply to personal entries only, where they are mandatory.
+        const isPersonal = resolveTab(book) === 'Personal';
+        const cleanTag = typeof tag === 'string' ? tag.trim() : '';
+
+        if (isPersonal) {
+            if (!cleanTag) {
+                return NextResponse.json(
+                    { error: 'A tag is required for personal expenses.' },
+                    { status: 400 }
+                );
+            }
+
+            if (cleanTag.length > MAX_TAG_LENGTH) {
+                return NextResponse.json(
+                    { error: `Tag must be ${MAX_TAG_LENGTH} characters or fewer.` },
+                    { status: 400 }
+                );
+            }
+
+            if (FORMULA_PREFIX.test(cleanTag)) {
+                return NextResponse.json(
+                    { error: 'Tag cannot start with =, +, - or @.' },
+                    { status: 400 }
+                );
+            }
         }
 
         // 3. Authenticate with Google Sheets API
@@ -71,16 +110,18 @@ export async function POST(request: Request) {
 
         const sheets = google.sheets({ version: 'v4', auth });
         const spreadsheetId = process.env.GOOGLE_SHEET_ID;
-        const range = `${resolveTab(book)}!A:E`;
+        const range = resolveRange(book);
 
         // 4. Append data to the sheet
-        // Headers: Date | Name | Email | Reason | Amount
+        // Headers: Date | Name | Email | Reason | Amount (| Tag — personal only)
         const response = await sheets.spreadsheets.values.append({
             spreadsheetId,
             range,
             valueInputOption: 'USER_ENTERED',
             requestBody: {
-                values: [[date, userName, userEmail, reason, amount]],
+                values: [isPersonal
+                    ? [date, userName, userEmail, reason, amount, cleanTag]
+                    : [date, userName, userEmail, reason, amount]],
             },
         });
 
@@ -140,7 +181,7 @@ export async function GET(request: Request) {
         const sheets = google.sheets({ version: 'v4', auth });
         const spreadsheetId = process.env.GOOGLE_SHEET_ID;
         const { searchParams } = new URL(request.url);
-        const range = `${resolveTab(searchParams.get('book'))}!A:E`;
+        const range = resolveRange(searchParams.get('book'));
 
         const response = await sheets.spreadsheets.values.get({
             spreadsheetId,
@@ -150,13 +191,16 @@ export async function GET(request: Request) {
         const rows = response.data.values || [];
 
         // Skip header row if present, map rows to objects
-        // Columns: Date | Name | Email | Reason | Amount
+        // Columns: Date | Name | Email | Reason | Amount (| Tag — personal only)
+        // Family reads A:E and pre-tag personal rows are short, so row[5] is
+        // undefined in both cases and every expense has the same shape.
         const expenses = rows.map((row) => ({
             date: row[0] || '',
             userName: row[1] || '',
             userEmail: row[2] || '',
             reason: row[3] || '',
             amount: Number(row[4]) || 0,
+            tag: row[5] || '',
         }));
 
         return NextResponse.json({ expenses }, { status: 200 });

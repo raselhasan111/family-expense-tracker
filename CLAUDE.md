@@ -32,11 +32,26 @@ This app has **two independent authentication/Google identities** that must not 
 
 ### Data flow
 
-The spreadsheet is the single source of truth. Sheet columns are fixed and positional: **Date | Name | Email | Reason | Amount** (`Sheet1!A:E`). Any change to this column order/shape must be mirrored in **both** the POST `values` array and the GET row-mapping in [app/api/expenses/route.ts](app/api/expenses/route.ts), and in the `Expense` interface in [components/ExpenseList.tsx](components/ExpenseList.tsx).
+The spreadsheet is the single source of truth. Sheet columns are fixed and positional, and the two expense tabs differ in width:
 
-- **Write**: [components/ExpenseForm.tsx](components/ExpenseForm.tsx) POSTs `{ reason, amount, date, book }`. Identity (`userName`/`userEmail`) is derived **server-side** from the session in the API route, not sent by the client; `date` is generated client-side as `en-US` locale (`M/D/YYYY`). The API appends a row.
+- **`Family`** (`A:E`) — **Date | Name | Email | Reason | Amount**
+- **`Personal`** (`A:F`) — **Date | Name | Email | Reason | Amount | Tag**
+
+`resolveRange()` in [app/api/expenses/route.ts](app/api/expenses/route.ts) is the single place that maps a book to its range; `resolveTab()` still maps it to the tab name. Any change to this column order/shape must be mirrored in **both** the POST `values` array and the GET row-mapping in that route, and in the `Expense` interface in [components/ExpenseList.tsx](components/ExpenseList.tsx).
+
+- **Write**: [components/ExpenseForm.tsx](components/ExpenseForm.tsx) POSTs `{ reason, amount, date, book }`, plus `tag` when `book === 'personal'`. Identity (`userName`/`userEmail`) is derived **server-side** from the session in the API route, not sent by the client; `date` is generated client-side as `en-US` locale (`M/D/YYYY`). The API appends a row.
 - **Read**: [components/ExpenseList.tsx](components/ExpenseList.tsx) GETs all rows, then does all filtering/aggregation **client-side**: filters to the current calendar month, derives the user filter dropdown (keyed by email, disambiguating duplicate display names), and sums totals.
 - **Refresh coupling**: [components/HomeContent.tsx](components/HomeContent.tsx) owns a `refreshTrigger` counter passed to `ExpenseList`; `ExpenseForm` calls `onExpenseAdded()` after a successful POST to bump it and force a re-fetch. Keep this wiring intact when adding mutations.
+
+### Tags (personal entries only)
+
+Personal expenses carry exactly one mandatory **tag**; family expenses have none and their form shows no tag field.
+
+- **Vocabulary is derived, not stored separately.** There is no `Tags` tab and no `/api/tags` route. [components/ExpenseList.tsx](components/ExpenseList.tsx) derives the tag list from the rows it already fetched (`collectTags()` — trims, dedupes case-insensitively keeping first-seen casing) and reports it upward via `onTagsChange`; [components/HomeContent.tsx](components/HomeContent.tsx) holds it and passes it down to [components/ExpenseForm.tsx](components/ExpenseForm.tsx) as `existingTags`. This keeps the feature to a single Sheets read — do not add a second fetch. The `onTagsChange` callback must stay wrapped in `useCallback`, or the reporting effect loops.
+- **The form** offers a `<select>` of existing tags plus a `+ Add new tag…` option that swaps in a free-text input. A newly typed tag that case-insensitively matches an existing one is snapped to the existing casing before POSTing.
+- **Validation is duplicated client- and server-side**: non-empty, ≤ 40 chars, and **must not start with `=`, `+`, `-` or `@`** — rows are written with `valueInputOption: 'USER_ENTERED'`, so such a tag would be stored as a live spreadsheet formula. The server check is the authoritative one.
+- **Historical rows are not backfilled.** Pre-tag rows are shorter than column F, so `row[5]` is `undefined` → `''`; they render as `—` and are reachable through the list's `Untagged` filter option.
+- The personal list's desktop table gains a Tag column — its `tfoot` `colSpan` is `isPersonal ? 4 : 3`.
 
 ### Emergency Fund (third cashbook)
 
@@ -62,6 +77,8 @@ Required in `.env.local` (not committed):
 - `GMAIL_USER`, `GMAIL_APP_PASSWORD` — Gmail address + 16-char [App Password](https://myaccount.google.com/apppasswords) (needs 2FA on that account) used by [lib/mailer.ts](lib/mailer.ts) to send login codes over Gmail SMTP. Free (~500 emails/day); no third-party email service.
 
 ### Manual Google Sheet setup
+
+The `Personal` tab's **Tag** column (F) needs no manual setup — Sheets already provides the column and the API writes into it.
 
 Two tabs must be created by hand in the spreadsheet (in addition to `Family` / `Personal` / `Family-Emergency`):
 - **`Login-Codes`** (`A:F`) — email one-time-code state: `Email | CodeHash | ExpiresAt | Attempts | WindowStart | SentCount`. Managed entirely by [lib/otp.ts](lib/otp.ts); no header row needed. Never contains plaintext codes.
