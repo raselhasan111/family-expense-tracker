@@ -26,9 +26,10 @@ interface BreakdownProps {
 // title names the measure. Anything past the top N folds into "Other" rather
 // than growing the chart without bound.
 export default function Breakdown({ title, items, selected, onSelect }: BreakdownProps) {
-    // Open by default, but collapsible: while entering an expense the form is
-    // the task, and the chart is just pushing the list further down the page.
-    const [open, setOpen] = useState(true);
+    // Collapsed by default: entering an expense is the common task, and the
+    // chart would otherwise push the list down the page on every visit. The
+    // title stays visible so it is still discoverable.
+    const [open, setOpen] = useState(false);
 
     const ranked = [...items].filter((i) => i.amount > 0).sort((a, b) => b.amount - a.amount);
     // One bar at 100% tells the reader nothing they can't see in the total.
