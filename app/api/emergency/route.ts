@@ -117,7 +117,11 @@ export async function GET() {
             range: RANGE,
         });
 
-        const rows = response.data.values || [];
+        // Drop the header row and any row with an unusable date; every consumer
+        // below assumes a parseable date.
+        const rows = (response.data.values || []).filter(
+            (r) => r[0] && !isNaN(new Date(r[0]).getTime())
+        );
 
         // Columns: Date | Name | Email | Reason | Amount | Type
         const entries = rows.map((row) => ({

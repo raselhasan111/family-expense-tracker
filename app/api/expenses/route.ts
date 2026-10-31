@@ -188,9 +188,13 @@ export async function GET(request: Request) {
             range,
         });
 
-        const rows = response.data.values || [];
+        // Drop the header row and any row with an unusable date; every consumer
+        // below assumes a parseable date.
+        const rows = (response.data.values || []).filter(
+            (r) => r[0] && !isNaN(new Date(r[0]).getTime())
+        );
 
-        // Skip header row if present, map rows to objects
+        // Map rows to objects
         // Columns: Date | Name | Email | Reason | Amount (| Tag — personal only)
         // Family reads A:E and pre-tag personal rows are short, so row[5] is
         // undefined in both cases and every expense has the same shape.

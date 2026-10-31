@@ -2,6 +2,11 @@
 
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useSession } from 'next-auth/react';
+import { taka, formatDate, toYearMonth, monthLabel, inMonth, monthsOf } from '@/lib/format';
+import { useFilters } from '@/lib/useFilters';
+import { CARD, PANEL, H2, SELECT, PILL, LINK, Loading, Notice, chevron } from '@/components/ui';
+import TxList, { type Col } from '@/components/TxList';
+import Breakdown from '@/components/Breakdown';
 
 interface Expense {
     date: string;
@@ -20,24 +25,9 @@ interface ExpenseListProps {
     onTagsChange?: (tags: string[]) => void;
 }
 
-const UNTAGGED = '__untagged__';
-
-const selectStyle = {
-    backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E")`,
-    backgroundRepeat: 'no-repeat' as const,
-    backgroundPosition: 'right 10px center',
-};
-
-const selectClass = 'flex-1 min-w-0 overflow-hidden text-ellipsis bg-slate-900/60 border border-slate-700/50 rounded-xl px-3 py-2 text-sm text-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500/50 transition-all cursor-pointer appearance-none pr-8';
-
-function toYearMonth(date: Date): string {
-    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
-}
-
-function formatMonthLabel(ym: string): string {
-    const [year, month] = ym.split('-').map(Number);
-    return new Date(year, month - 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
-}
+// Sentinel for the "no tag" filter option. Prefixed so it cannot collide with
+// a real tag that happens to be called "untagged".
+const UNTAGGED = '~untagged';
 
 // Dedupe case-insensitively, keeping the casing first seen, then sort.
 function collectTags(expenses: Expense[]): string[] {
@@ -49,17 +39,24 @@ function collectTags(expenses: Expense[]): string[] {
     return Array.from(byLower.values()).sort((a, b) => a.localeCompare(b));
 }
 
+function sumBy(rows: Expense[], key: (e: Expense) => string) {
+    const by = new Map<string, number>();
+    rows.forEach((e) => {
+        const k = key(e);
+        by.set(k, (by.get(k) || 0) + e.amount);
+    });
+    return Array.from(by, ([label, amount]) => ({ label, amount }));
+}
+
 export default function ExpenseList({ refreshTrigger, cashbook, onTagsChange }: ExpenseListProps) {
     const { data: session } = useSession();
+    const { params, set, filtered, clear } = useFilters();
     const isPersonal = cashbook === 'personal';
     const currentYM = toYearMonth(new Date());
 
     const [expenses, setExpenses] = useState<Expense[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
-    const [selectedUser, setSelectedUser] = useState('all');
-    const [selectedMonth, setSelectedMonth] = useState<string>(currentYM);
-    const [selectedTag, setSelectedTag] = useState('all');
 
     const fetchExpenses = useCallback(async () => {
         setLoading(true);
@@ -78,9 +75,6 @@ export default function ExpenseList({ refreshTrigger, cashbook, onTagsChange }: 
     }, [cashbook]);
 
     useEffect(() => {
-        setSelectedUser('all');
-        setSelectedTag('all');
-        setSelectedMonth(currentYM);
         fetchExpenses();
     }, [fetchExpenses, refreshTrigger]);
 
@@ -91,40 +85,25 @@ export default function ExpenseList({ refreshTrigger, cashbook, onTagsChange }: 
         onTagsChange?.(allTags);
     }, [allTags, onTagsChange]);
 
-    // Months that have data, newest first, capped at 12
-    const availableMonths = useMemo(() => {
-        const monthSet = new Set<string>();
-        expenses.forEach((e) => {
-            try {
-                const d = new Date(e.date);
-                if (!isNaN(d.getTime())) monthSet.add(toYearMonth(d));
-            } catch { /* skip */ }
-        });
-        return Array.from(monthSet).sort((a, b) => b.localeCompare(a)).slice(0, 12);
-    }, [expenses]);
+    const availableMonths = useMemo(() => monthsOf(expenses), [expenses]);
 
-    // If the selected month drops out of the available list (e.g. current month has no data),
-    // fall back to the most recent available month
-    useEffect(() => {
-        if (availableMonths.length > 0 && !availableMonths.includes(selectedMonth)) {
-            setSelectedMonth(availableMonths[0]);
-        }
-    }, [availableMonths]);
+    // Filters are derived from the URL rather than held in state. Validation and
+    // fallback are the same expression, so a hand-typed param and a filter whose
+    // data has disappeared are handled identically — and the three reset effects
+    // this file used to need are gone.
+    const monthParam = params.get('month');
+    const selectedMonth = monthParam && availableMonths.includes(monthParam)
+        ? monthParam
+        : availableMonths.includes(currentYM)
+            ? currentYM
+            : availableMonths[0] ?? currentYM;
 
-    // Filter entries for the selected month
-    const selectedMonthExpenses = useMemo(() => {
-        const [year, month] = selectedMonth.split('-').map(Number);
-        return expenses.filter((e) => {
-            try {
-                const d = new Date(e.date);
-                return d.getMonth() + 1 === month && d.getFullYear() === year;
-            } catch {
-                return false;
-            }
-        });
-    }, [expenses, selectedMonth]);
+    const selectedMonthExpenses = useMemo(
+        () => expenses.filter((e) => inMonth(e.date, selectedMonth)),
+        [expenses, selectedMonth]
+    );
 
-    // Unique users from selected month data (family mode only)
+    // Unique users from the selected month, disambiguating duplicate display names.
     const uniqueUsers = useMemo(() => {
         const userMap = new Map<string, string>();
         selectedMonthExpenses.forEach((e) => {
@@ -143,46 +122,46 @@ export default function ExpenseList({ refreshTrigger, cashbook, onTagsChange }: 
             .sort((a, b) => a.displayName.localeCompare(b.displayName));
     }, [selectedMonthExpenses]);
 
-    // Apply personal/user filter
+    const userParam = params.get('user');
+    const selectedUser = userParam && uniqueUsers.some((u) => u.email === userParam) ? userParam : 'all';
+
     const ownedExpenses = useMemo(() => {
         if (isPersonal) return selectedMonthExpenses.filter((e) => e.userEmail === session?.user?.email);
         if (selectedUser === 'all') return selectedMonthExpenses;
         return selectedMonthExpenses.filter((e) => e.userEmail === selectedUser);
     }, [selectedMonthExpenses, selectedUser, isPersonal, session?.user?.email]);
 
-    // Tag options for the visible rows (personal mode only), mirroring the way
-    // the user dropdown is scoped to the selected month.
     const monthTags = useMemo(() => (isPersonal ? collectTags(ownedExpenses) : []), [isPersonal, ownedExpenses]);
     const hasUntagged = useMemo(
         () => isPersonal && ownedExpenses.some((e) => !e.tag?.trim()),
         [isPersonal, ownedExpenses]
     );
 
-    // Drop a tag selection that no longer exists in the visible rows
-    useEffect(() => {
-        if (selectedTag === 'all') return;
-        const stillThere = selectedTag === UNTAGGED
-            ? hasUntagged
-            : monthTags.some((t) => t.toLowerCase() === selectedTag.toLowerCase());
-        if (!stillThere) setSelectedTag('all');
-    }, [monthTags, hasUntagged, selectedTag]);
+    // Resolve to the tag's *canonical* casing, so a link carrying ?tag=fish both
+    // filters and selects the "Fish" option — matching on value alone would
+    // filter the rows while leaving the dropdown showing "All Tags".
+    const tagParam = params.get('tag');
+    const selectedTag = !tagParam
+        ? 'all'
+        : tagParam === UNTAGGED
+            ? (hasUntagged ? UNTAGGED : 'all')
+            : monthTags.find((t) => t.toLowerCase() === tagParam.toLowerCase()) ?? 'all';
 
-    // Apply tag filter
     const filteredExpenses = useMemo(() => {
         if (!isPersonal || selectedTag === 'all') return ownedExpenses;
         if (selectedTag === UNTAGGED) return ownedExpenses.filter((e) => !e.tag?.trim());
         return ownedExpenses.filter((e) => e.tag?.trim().toLowerCase() === selectedTag.toLowerCase());
     }, [ownedExpenses, isPersonal, selectedTag]);
 
-    const total = useMemo(() => filteredExpenses.reduce((sum, e) => sum + e.amount, 0), [filteredExpenses]);
-
-    const formatDate = (dateStr: string) => {
-        try {
-            return new Date(dateStr).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
-        } catch {
-            return dateStr;
-        }
-    };
+    // The overview is deliberately fed from the set *before* this tab's own
+    // filter: a breakdown of one selected tag is a one-bar chart, and the point
+    // of the panel is the month's whole picture.
+    const breakdown = useMemo(
+        () => isPersonal
+            ? sumBy(ownedExpenses, (e) => e.tag?.trim() || 'Untagged')
+            : sumBy(selectedMonthExpenses, (e) => e.userName || '—'),
+        [isPersonal, ownedExpenses, selectedMonthExpenses]
+    );
 
     const baseTotalLabel = isPersonal
         ? (session?.user?.name ?? 'You')
@@ -195,200 +174,100 @@ export default function ExpenseList({ refreshTrigger, cashbook, onTagsChange }: 
         ? `${baseTotalLabel} · ${tagLabel}`
         : baseTotalLabel;
 
-    return (
-        <div className="w-full max-w-3xl mx-auto mt-10 relative z-10">
-            <div className="bg-white/10 backdrop-blur-xl border border-white/20 shadow-2xl rounded-3xl p-6 sm:p-8 transition-all hover:shadow-emerald-500/10">
+    const cols = useMemo<Col<Expense>[]>(() => ([
+        { header: 'Date', slot: 'lead', cell: (e) => formatDate(e.date) },
+        // Personal is already scoped to the signed-in user, so a Name column
+        // would repeat one value on every row.
+        ...(!isPersonal ? [{ header: 'Name', slot: 'meta', cell: (e: Expense) => e.userName } as Col<Expense>] : []),
+        { header: 'Reason', slot: 'body', cell: (e) => e.reason },
+        ...(isPersonal ? [{
+            header: 'Tag',
+            slot: 'meta',
+            cell: (e: Expense) => e.tag?.trim()
+                ? <span className={PILL}>{e.tag}</span>
+                : <span className="text-slate-600">—</span>,
+        } as Col<Expense>] : []),
+        { header: 'Amount', slot: 'trail', right: true, cell: (e) => taka(e.amount) },
+    ]), [isPersonal]);
 
-                {/* Section Header */}
+    const selectClass = `${SELECT} flex-1 min-w-0 truncate sm:flex-none`;
+
+    return (
+        <div className={`${PANEL} mt-10`}>
+            <div className={`${CARD} transition-all hover:shadow-emerald-500/10`}>
+
                 <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
-                    <h2 className="text-2xl font-bold bg-clip-text text-transparent bg-linear-to-r from-blue-400 to-emerald-400 tracking-tight">
+                    <h2 className={H2}>
                         Monthly {isPersonal ? 'Personal' : 'Family'} Expenses
                     </h2>
 
-                    {/* Filters row */}
-                    <div className="flex items-center gap-2 w-full sm:w-auto">
-                        <label className="text-sm text-slate-400 whitespace-nowrap">Filter by:</label>
-
-                        {/* Month selector */}
+                    <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
                         <select
+                            aria-label="Filter by month"
                             value={selectedMonth}
-                            onChange={(e) => {
-                                setSelectedMonth(e.target.value);
-                                setSelectedUser('all');
-                                setSelectedTag('all');
-                            }}
+                            onChange={(e) => set({ month: e.target.value, user: null, tag: null })}
                             className={selectClass}
-                            style={selectStyle}
+                            style={chevron()}
                         >
+                            {availableMonths.length === 0 && <option value={selectedMonth}>{monthLabel(selectedMonth)}</option>}
                             {availableMonths.map((ym) => (
-                                <option key={ym} value={ym}>
-                                    {formatMonthLabel(ym)}
-                                </option>
+                                <option key={ym} value={ym}>{monthLabel(ym)}</option>
                             ))}
                         </select>
 
-                        {/* User selector — family mode only */}
                         {!isPersonal && (
                             <select
-                                id="user-filter"
+                                aria-label="Filter by user"
                                 value={selectedUser}
-                                onChange={(e) => setSelectedUser(e.target.value)}
+                                onChange={(e) => set({ user: e.target.value })}
                                 className={selectClass}
-                                style={selectStyle}
+                                style={chevron()}
                             >
                                 <option value="all">All Users</option>
                                 {uniqueUsers.map((user) => (
-                                    <option key={user.email} value={user.email}>
-                                        {user.displayName}
-                                    </option>
+                                    <option key={user.email} value={user.email}>{user.displayName}</option>
                                 ))}
                             </select>
                         )}
 
-                        {/* Tag selector — personal mode only */}
                         {isPersonal && (monthTags.length > 0 || hasUntagged) && (
                             <select
-                                id="tag-filter"
+                                aria-label="Filter by tag"
                                 value={selectedTag}
-                                onChange={(e) => setSelectedTag(e.target.value)}
+                                onChange={(e) => set({ tag: e.target.value })}
                                 className={selectClass}
-                                style={selectStyle}
+                                style={chevron()}
                             >
                                 <option value="all">All Tags</option>
                                 {monthTags.map((tag) => (
-                                    <option key={tag} value={tag}>
-                                        {tag}
-                                    </option>
+                                    <option key={tag} value={tag}>{tag}</option>
                                 ))}
                                 {hasUntagged && <option value={UNTAGGED}>Untagged</option>}
                             </select>
                         )}
+
+                        {filtered && (
+                            <button type="button" onClick={clear} className={LINK}>Clear</button>
+                        )}
                     </div>
                 </div>
 
-                {/* Loading State */}
-                {loading && (
-                    <div className="flex flex-col items-center gap-3 py-12">
-                        <svg className="animate-spin h-7 w-7 text-emerald-400" fill="none" viewBox="0 0 24 24">
-                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-                        </svg>
-                        <p className="text-slate-400 text-sm">Loading expenses...</p>
-                    </div>
-                )}
+                {loading && <Loading label="Loading expenses..." />}
 
-                {/* Error State */}
-                {error && !loading && (
-                    <div className="p-4 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-400 text-sm flex items-center gap-3">
-                        <svg className="w-5 h-5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                        </svg>
-                        <span>{error}</span>
-                    </div>
-                )}
+                {error && !loading && <Notice kind="bad">{error}</Notice>}
 
-                {/* Empty State */}
-                {!loading && !error && filteredExpenses.length === 0 && (
-                    <div className="flex flex-col items-center gap-3 py-12 text-slate-500">
-                        <svg className="w-12 h-12 opacity-40" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M9 5H7a2 2 0 00-2 2v10a2 2 0 002 2h8a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
-                        </svg>
-                        <p className="text-sm">No expenses found for {formatMonthLabel(selectedMonth)}</p>
-                    </div>
-                )}
-
-                {/* Expense Table */}
-                {!loading && !error && filteredExpenses.length > 0 && (
+                {!loading && !error && (
                     <>
-                        {/* Desktop Table */}
-                        <div className="hidden sm:block overflow-x-auto">
-                            <table className="w-full text-sm">
-                                <thead>
-                                    <tr className="border-b border-white/10">
-                                        <th className="text-left text-xs font-semibold text-slate-400 uppercase tracking-wider pb-3 pl-3">Date</th>
-                                        <th className="text-left text-xs font-semibold text-slate-400 uppercase tracking-wider pb-3 px-3">Name</th>
-                                        <th className="text-left text-xs font-semibold text-slate-400 uppercase tracking-wider pb-3 px-3">Reason</th>
-                                        {isPersonal && (
-                                            <th className="text-left text-xs font-semibold text-slate-400 uppercase tracking-wider pb-3 px-3">Tag</th>
-                                        )}
-                                        <th className="text-right text-xs font-semibold text-slate-400 uppercase tracking-wider pb-3 pr-3">Amount</th>
-                                    </tr>
-                                </thead>
-                                <tbody className="divide-y divide-white/5">
-                                    {filteredExpenses.map((expense, index) => (
-                                        <tr key={index} className="hover:bg-white/5 transition-colors group">
-                                            <td className="py-3 pl-3 text-slate-300 whitespace-nowrap">{formatDate(expense.date)}</td>
-                                            <td className="py-3 px-3 text-slate-200 font-medium whitespace-nowrap">{expense.userName}</td>
-                                            <td className="py-3 px-3 text-slate-300">{expense.reason}</td>
-                                            {isPersonal && (
-                                                <td className="py-3 px-3 whitespace-nowrap">
-                                                    {expense.tag?.trim() ? (
-                                                        <span className="inline-block bg-white/5 border border-white/10 rounded-lg px-2 py-0.5 text-xs text-slate-300">
-                                                            {expense.tag}
-                                                        </span>
-                                                    ) : (
-                                                        <span className="text-slate-600">—</span>
-                                                    )}
-                                                </td>
-                                            )}
-                                            <td className="py-3 pr-3 text-right text-slate-100 font-semibold tabular-nums">
-                                                ৳{expense.amount.toLocaleString('en-IN')}
-                                            </td>
-                                        </tr>
-                                    ))}
-                                </tbody>
-                                <tfoot>
-                                    <tr className="border-t-2 border-emerald-500/30">
-                                        <td colSpan={isPersonal ? 4 : 3} className="py-4 pl-3 text-emerald-400 font-bold text-base max-w-0 truncate">
-                                            Total ({totalLabel})
-                                        </td>
-                                        <td className="py-4 pr-3 text-right text-emerald-400 font-bold text-lg tabular-nums">
-                                            ৳{total.toLocaleString('en-IN')}
-                                        </td>
-                                    </tr>
-                                </tfoot>
-                            </table>
-                        </div>
-
-                        {/* Mobile Cards */}
-                        <div className="sm:hidden space-y-3">
-                            {filteredExpenses.map((expense, index) => (
-                                <div key={index} className="bg-white/5 border border-white/10 rounded-xl p-4 space-y-2">
-                                    <div className="flex items-center justify-between">
-                                        <span className="text-xs text-slate-400 font-medium">{formatDate(expense.date)}</span>
-                                        <span className="text-base font-bold text-slate-100 tabular-nums">
-                                            ৳{expense.amount.toLocaleString('en-IN')}
-                                        </span>
-                                    </div>
-                                    <p className="text-sm text-slate-200 font-medium break-words">{expense.reason}</p>
-                                    <div className="flex items-center justify-between gap-2">
-                                        <p className="text-xs text-slate-400 truncate">{expense.userName}</p>
-                                        {isPersonal && expense.tag?.trim() && (
-                                            <span className="shrink-0 bg-white/5 border border-white/10 rounded-lg px-2 py-0.5 text-xs text-slate-300">
-                                                {expense.tag}
-                                            </span>
-                                        )}
-                                    </div>
-                                </div>
-                            ))}
-
-                            {/* Mobile Total */}
-                            <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-xl p-4 flex items-center justify-between gap-3 min-w-0">
-                                <span className="text-emerald-400 font-bold truncate min-w-0">
-                                    Total ({totalLabel})
-                                </span>
-                                <span className="text-emerald-400 font-bold text-lg tabular-nums">
-                                    ৳{total.toLocaleString('en-IN')}
-                                </span>
-                            </div>
-                        </div>
-
-                        {/* Entry Count */}
-                        <div className="mt-4 text-center">
-                            <p className="text-xs text-slate-500">
-                                {filteredExpenses.length} {filteredExpenses.length === 1 ? 'entry' : 'entries'} found
-                            </p>
-                        </div>
+                        <Breakdown
+                            title={isPersonal ? 'Spending by tag' : 'Spending by person'}
+                            items={breakdown}
+                        />
+                        <TxList
+                            rows={filteredExpenses}
+                            cols={cols}
+                            totalLabel={`Total (${totalLabel})`}
+                            empty={`No expenses found for ${monthLabel(selectedMonth)}`}
+                        />
                     </>
                 )}
             </div>

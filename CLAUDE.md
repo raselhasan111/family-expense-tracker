@@ -30,6 +30,62 @@ This app has **two independent authentication/Google identities** that must not 
 - **Email-code login (free, no DB):** [components/SignIn.tsx](components/SignIn.tsx) POSTs an email to [app/api/auth/otp/route.ts](app/api/auth/otp/request/route.ts), which (only for allowlisted emails) issues a 6-digit code and emails it via Gmail SMTP ([lib/mailer.ts](lib/mailer.ts)). The user submits the code through `signIn("email-code", …)`; the provider's `authorize` verifies it via [lib/otp.ts](lib/otp.ts). Codes are stored **HMAC-hashed** (keyed with `AUTH_SECRET`), single-use, 10-min expiry, capped at 5 verify attempts and 3 sends / 15-min. The request endpoint always responds generically (no user enumeration).
 - **Server-derived identity:** the expenses/emergency API routes take `userName`/`userEmail` from `auth()` (the session), **never** from the request body, and reject unauthenticated or non-allowlisted callers (401/403) on both GET and POST. Forms no longer send identity fields — do not reintroduce them.
 
+### Shared UI layer
+
+The app is **mobile-first** and deliberately small: four shared modules back every screen, so changes
+belong in them rather than in a feature component.
+
+- **[lib/format.ts](lib/format.ts)** — the only place sheet dates are parsed or money is formatted:
+  `taka`, `ts`, `formatDate`, `toYearMonth`, `monthLabel`, `inMonth`, `monthsOf`. `ts()` returns
+  `-Infinity` for an unparseable cell so junk rows sort to the bottom instead of scattering. Do not
+  reintroduce local copies of these — they used to exist in both list components.
+- **[components/ui.tsx](components/ui.tsx)** — repeated *class strings* (`CARD`, `PANEL`, `H2`,
+  `FIELD`, `DATE_FIELD`, `SELECT`, `PILL`, `LINK`, `chevron()`) plus the repeated *structure*
+  (`Spinner`, `Loading`, `Notice`, `Field`, `UserBar`, `SubmitButton`, `FormCard`). `SELECT` is the
+  base (Emergency) variant; `ExpenseList` appends its own flex sizing. `FormCard` is the whole shell
+  both entry forms share — card, user bar, title, `<form>`, submit, notices — so a form file contains
+  only its fields.
+- **[components/TxList.tsx](components/TxList.tsx)** — the single list used by all four call sites
+  (family, personal, emergency cash-in, cash-out). It owns sorting, the total, and pagination:
+  - Rows arrive **already filtered**; `TxList` sorts them **newest-first**. Sheet order is append
+    order (oldest first), so the sort is required. Its `|| b[1] - a[1]` index tie-break is
+    load-bearing: `Array.sort` is stable, so without it same-day rows would read oldest-first.
+  - The **total is rendered above the rows** and is computed over **every** row, never the visible
+    page. This is why there is no `tfoot` and no separate mobile total card any more.
+  - 20 rows show initially, with a `show all` / `show less` toggle. The expanded flag is reset
+    during render when `rows` changes, not in an effect.
+  - Columns are a **config array**, not boolean flags: `{ header, slot, right?, cell }`. `slot`
+    (`lead | body | meta | trail`) places the field on the 2×2 mobile card. Adding a column touches
+    no branches inside `TxList`. Only the `body` column wraps; the rest stay on one line.
+- **[components/Breakdown.tsx](components/Breakdown.tsx)** — dependency-free ranked CSS bars (no chart
+  library). Single series, so every bar shares one fill and no legend is needed; past the top 8 the
+  rest fold into `Other`. It is fed from the rows *before* that tab's own filter, so it always shows
+  the month's whole picture rather than a one-bar chart of the current selection.
+
+### URL state
+
+**All** view state lives in the query string, via [lib/useFilters.ts](lib/useFilters.ts) — there is no
+`useState` for the tab or any filter.
+
+| Param | Values | Absent means |
+|---|---|---|
+| `book` | `personal` \| `emergency` | `family` |
+| `month` | `YYYY-MM` (or absent for `all` on emergency) | expenses → current month; emergency → all time |
+| `user` | an email (family only) | all users |
+| `tag` | a tag, or `~untagged` (personal only) | all tags |
+
+- **Defaults are never written** to the URL, so `/` is the default view and "is anything filtered?"
+  is just "are any filter params present?" — that drives the **Clear** button.
+- Changing **tab** uses `push` (Back returns to the previous tab) and clears every filter; changing a
+  **filter** uses `replace`, so Back is not clogged.
+- **Every param is validated against the data actually present** and silently falls back. Filters are
+  therefore *derived during render*, not stored — which is why `ExpenseList` no longer needs the three
+  reset/fallback effects it used to carry. Never trust a param.
+- `HomeContent` reads search params, so it **must** stay inside the `<Suspense>` boundary in
+  [app/page.tsx](app/page.tsx) or `next build` fails with `missing-suspense-with-csr-bailout` — an
+  error `next dev` does **not** show. The hero markup lives in `page.tsx`, outside that boundary, so it
+  stays in the prerendered HTML; keep it there.
+
 ### Data flow
 
 The spreadsheet is the single source of truth. Sheet columns are fixed and positional, and the two expense tabs differ in width:
@@ -40,7 +96,7 @@ The spreadsheet is the single source of truth. Sheet columns are fixed and posit
 `resolveRange()` in [app/api/expenses/route.ts](app/api/expenses/route.ts) is the single place that maps a book to its range; `resolveTab()` still maps it to the tab name. Any change to this column order/shape must be mirrored in **both** the POST `values` array and the GET row-mapping in that route, and in the `Expense` interface in [components/ExpenseList.tsx](components/ExpenseList.tsx).
 
 - **Write**: [components/ExpenseForm.tsx](components/ExpenseForm.tsx) POSTs `{ reason, amount, date, book }`, plus `tag` when `book === 'personal'`. Identity (`userName`/`userEmail`) is derived **server-side** from the session in the API route, not sent by the client; `date` is generated client-side as `en-US` locale (`M/D/YYYY`). The API appends a row.
-- **Read**: [components/ExpenseList.tsx](components/ExpenseList.tsx) GETs all rows, then does all filtering/aggregation **client-side**: filters to the current calendar month, derives the user filter dropdown (keyed by email, disambiguating duplicate display names), and sums totals.
+- **Read**: [components/ExpenseList.tsx](components/ExpenseList.tsx) GETs all rows, then does all filtering/aggregation **client-side**: filters to the selected month, derives the user filter dropdown (keyed by email, disambiguating duplicate display names), and hands the result to `TxList`, which sorts and totals it. Both GET routes drop the sheet's header row (and any row with an unparseable date) before mapping.
 - **Refresh coupling**: [components/HomeContent.tsx](components/HomeContent.tsx) owns a `refreshTrigger` counter passed to `ExpenseList`; `ExpenseForm` calls `onExpenseAdded()` after a successful POST to bump it and force a re-fetch. Keep this wiring intact when adding mutations.
 
 ### Tags (personal entries only)
@@ -64,8 +120,10 @@ A third sheet tab **`Family-Emergency`** (`A:F`) stores family emergency fund en
 
 ### Conventions
 
-- `date` strings are parsed with `new Date(...)` in several places; the write format (`en-US`) and the month-filter logic depend on each other — change them together.
-- Amounts are Bangladeshi Taka (৳), formatted with `toLocaleString('en-IN')`.
+- `date` strings are parsed **only** through `ts()`/`inMonth()` in [lib/format.ts](lib/format.ts); the write format (`en-US`, `M/D/YYYY`) and that parsing depend on each other — change them together.
+- Amounts are Bangladeshi Taka (৳), formatted with `taka()` from [lib/format.ts](lib/format.ts) (`toLocaleString('en-IN')`).
+- The app is hardcoded dark — there is no light mode and no `dark:` variant anywhere.
+- `pnpm lint` currently reports pre-existing `@typescript-eslint/no-explicit-any` errors from `catch (e: any)` blocks, plus one in `TodayDate.tsx`. These predate the shared-UI refactor.
 - API error handling distinguishes config errors (missing env vars / key mismatch → 500, generic message) from input errors (→ 400, surfaced to the user).
 
 ## Environment variables
