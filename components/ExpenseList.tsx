@@ -39,13 +39,18 @@ function collectTags(expenses: Expense[]): string[] {
     return Array.from(byLower.values()).sort((a, b) => a.localeCompare(b));
 }
 
-function sumBy(rows: Expense[], key: (e: Expense) => string) {
-    const by = new Map<string, number>();
+// Groups by the value the row will filter by (a tag, or a user's email) while
+// labelling with what the reader recognises. Keyed on the filter value so two
+// people sharing a display name stay separate entries.
+function sumBy(rows: Expense[], of: (e: Expense) => { value: string; label: string }) {
+    const by = new Map<string, { value: string; label: string; amount: number }>();
     rows.forEach((e) => {
-        const k = key(e);
-        by.set(k, (by.get(k) || 0) + e.amount);
+        const { value, label } = of(e);
+        const prev = by.get(value);
+        if (prev) prev.amount += e.amount;
+        else by.set(value, { value, label, amount: e.amount });
     });
-    return Array.from(by, ([label, amount]) => ({ label, amount }));
+    return Array.from(by.values());
 }
 
 export default function ExpenseList({ refreshTrigger, cashbook, onTagsChange }: ExpenseListProps) {
@@ -158,8 +163,11 @@ export default function ExpenseList({ refreshTrigger, cashbook, onTagsChange }: 
     // of the panel is the month's whole picture.
     const breakdown = useMemo(
         () => isPersonal
-            ? sumBy(ownedExpenses, (e) => e.tag?.trim() || 'Untagged')
-            : sumBy(selectedMonthExpenses, (e) => e.userName || '—'),
+            ? sumBy(ownedExpenses, (e) => {
+                const tag = e.tag?.trim();
+                return { value: tag || UNTAGGED, label: tag || 'Untagged' };
+            })
+            : sumBy(selectedMonthExpenses, (e) => ({ value: e.userEmail, label: e.userName || '—' })),
         [isPersonal, ownedExpenses, selectedMonthExpenses]
     );
 
@@ -261,6 +269,13 @@ export default function ExpenseList({ refreshTrigger, cashbook, onTagsChange }: 
                         <Breakdown
                             title={isPersonal ? 'Spending by tag' : 'Spending by person'}
                             items={breakdown}
+                            selected={isPersonal ? selectedTag : selectedUser}
+                            // Clicking the active row clears it: 'all' is dropped
+                            // from the query by `set`, so the bar doubles as a toggle.
+                            onSelect={(value) => {
+                                const next = value === (isPersonal ? selectedTag : selectedUser) ? 'all' : value;
+                                set(isPersonal ? { tag: next } : { user: next });
+                            }}
                         />
                         <TxList
                             rows={filteredExpenses}

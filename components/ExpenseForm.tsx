@@ -180,10 +180,10 @@ export default function ExpenseForm({ onExpenseAdded, cashbook, existingTags = [
                 </Field>
             )}
 
-            {/* min-w-0 is load-bearing: flex items default to min-width:auto, and
-                date/number inputs have an intrinsic width that would otherwise
-                overflow 50% and make the two columns unequal. */}
-            <div className="flex gap-3 sm:gap-4">
+            {/* Stacked on phones, side by side from sm up. Sharing a row below
+                640px squeezes the date until its picker icon overlaps the year
+                ("31/10/2◫"), so the two fields each get a full row there. */}
+            <div className="flex flex-col sm:flex-row gap-3 sm:gap-4">
                 <Field label="Date" htmlFor="date" className="flex-1 min-w-0">
                     <input
                         id="date"
